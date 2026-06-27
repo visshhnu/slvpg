@@ -5,4 +5,4 @@ compatibility_date = "2026-06-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "svpg-manager-db"
-database_id = "REPLACE_WITH_YOUR_DATABASE_ID"
+database_id = "b7da8c40-6a59-4ff5-9e12-5d00716c87f0"
