@@ -1,0 +1,16 @@
+{
+  "name": "pg-manager",
+  "version": "1.0.0",
+  "description": "PG management app for rooms, residents, rent and expenses - Sri Lakshmi Venkateshwara Luxury Co-Living PG",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler pages dev public",
+    "deploy": "wrangler pages deploy public",
+    "db:migrate:local": "wrangler d1 migrations apply pg-manager-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply pg-manager-db --remote",
+    "db:create": "wrangler d1 create pg-manager-db"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

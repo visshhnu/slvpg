@@ -1,0 +1,18 @@
+{
+  "name": "PG Manager - Sri Lakshmi Venkateshwara",
+  "short_name": "PG Manager",
+  "description": "Manage rooms, residents, rent and expenses for your PG",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAF6EE",
+  "theme_color": "#0F2A4A",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
