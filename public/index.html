@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#0F2A4A">
-<title>PG Manager · Sri Lakshmi Venkateshwara</title>
+<title>SVPG Manager</title>
 <link rel="manifest" href="/manifest.json">
 <style>
 :root {
@@ -196,6 +196,16 @@ label {
 .badge-amber { background: var(--amber-bg); color: var(--amber); }
 .badge-gray { background: #EFEAE0; color: var(--ink-soft); }
 .badge-gold { background: #F7ECD3; color: var(--gold); }
+.badge-maint { background: var(--red-bg); color: var(--red); }
+
+.room-card { position: relative; }
+.room-card .maint-dot {
+  position: absolute;
+  top: 4px; right: 4px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+}
 
 .list-row {
   display: flex;
@@ -399,21 +409,23 @@ label {
       <circle cx="28" cy="28" r="7" fill="#C99A3E"/>
       <rect x="22" y="40" width="12" height="12" fill="#0F2A4A"/>
     </svg>
-    <div class="auth-title">PG Manager</div>
-    <div class="auth-sub">Sri Lakshmi Venkateshwara</div>
+    <div class="auth-title">SVPG Manager</div>
+    <div class="auth-sub">PG Operations System</div>
 
     <div id="setup-form">
-      <p style="font-size:13px;color:var(--ink-soft);margin-bottom:16px;text-align:center;">First time here — create your owner login.</p>
+      <p style="font-size:13px;color:var(--ink-soft);margin-bottom:16px;text-align:center;">First time here — create your admin login and your first PG.</p>
       <label>Your Name</label>
       <input id="setup-name" placeholder="e.g. Ramesh">
       <label>Phone</label>
       <input id="setup-phone" placeholder="9014761228">
+      <label>PG Name</label>
+      <input id="setup-pgname" placeholder="e.g. Sri Lakshmi Venkateshwara PG">
       <label>Username</label>
       <input id="setup-username" placeholder="admin">
       <label>Password</label>
       <input id="setup-password" type="password" placeholder="At least 6 characters">
       <div class="auth-error" id="setup-error"></div>
-      <button class="btn btn-primary" onclick="doSetup()">Create Owner Account</button>
+      <button class="btn btn-primary" onclick="doSetup()">Create Admin Account</button>
     </div>
 
     <div id="login-form" class="hidden">
@@ -436,9 +448,9 @@ label {
       <circle cx="28" cy="28" r="7" fill="#C99A3E"/>
       <rect x="22" y="40" width="12" height="12" fill="#FAF6EE"/>
     </svg>
-    <div class="header-text">
+    <div class="header-text" id="pg-switcher" onclick="openPgSwitcher()">
       <div class="header-title" id="screen-title">Dashboard</div>
-      <div class="header-sub" id="staff-name-label">—</div>
+      <div class="header-sub" id="pg-name-label">—</div>
     </div>
     <button class="header-action" onclick="doLogout()">Logout</button>
   </header>
@@ -489,6 +501,7 @@ label {
 <div class="toast" id="toast"></div>
 
 <script src="/app.js"></script>
+<script src="/pgs.js"></script>
 <script src="/dashboard.js"></script>
 <script src="/rooms.js"></script>
 <script src="/residents.js"></script>

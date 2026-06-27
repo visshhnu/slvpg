@@ -64,3 +64,12 @@ export function jsonResponse(data, status = 200) {
 export function unauthorized() {
   return jsonResponse({ error: 'Unauthorized' }, 401);
 }
+
+// Resolves which pg_id the current request should operate on.
+// Admins (session.pgId === null) can pass ?pg_id=N to pick a PG, or get null (meaning "all PGs", only valid for read-summary endpoints).
+// Staff are locked to their own pg_id no matter what they pass in the URL.
+export function resolvePgId(session, url) {
+  if (session.pgId) return session.pgId; // staff: always their own PG
+  const requested = url.searchParams.get('pg_id');
+  return requested ? parseInt(requested, 10) : null; // admin: whichever they ask for, or null for "all"
+}

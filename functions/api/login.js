@@ -25,6 +25,7 @@ export async function onRequestPost({ request, env }) {
     staffId: staff.id,
     name: staff.name,
     role: staff.role,
+    pgId: staff.pg_id || null,
   });
 
   const headers = new Headers({ 'Content-Type': 'application/json' });
@@ -34,7 +35,7 @@ export async function onRequestPost({ request, env }) {
   );
 
   return new Response(
-    JSON.stringify({ success: true, name: staff.name, role: staff.role }),
+    JSON.stringify({ success: true, name: staff.name, role: staff.role, pgId: staff.pg_id || null }),
     { headers }
   );
 }

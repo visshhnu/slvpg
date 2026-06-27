@@ -3,6 +3,10 @@
 async function loadRent() {
   const el = document.getElementById('screen-rent');
   el.innerHTML = `<div class="card"><div class="empty-state">Loading…</div></div>`;
+  if (!state.currentPgId) {
+    el.innerHTML = `<div class="card"><div class="empty-state"><div class="empty-state-title">No PG selected</div></div></div>`;
+    return;
+  }
   try {
     state.rentData = await api(`/rent?month=${state.rentMonth}`);
     renderRent();

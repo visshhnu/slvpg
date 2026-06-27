@@ -1,168 +1,179 @@
-# PG Manager — Sri Lakshmi Venkateshwara Luxury Co-Living PG
+# SVPG Manager — Multi-PG Operations System
 
-A simple, free, mobile-first web app to manage your PG:
-- **Rooms & beds** — see every floor, every room, who's in which bed, what's vacant
-- **Residents** — full hosteller details, with a priority list of who's vacating and when
-- **Rent collection** — month-by-month, who's paid, who's pending, who's overdue (past the 5th)
-- **Expenses** — electricity, maintenance, salary, etc. so you can see money going out, not just coming in
-- **Dashboard** — one screen with occupancy %, money collected, money pending, and net for the month
+A simple, free, mobile-first web app to manage one or more PGs:
+- **Multi-PG** — one admin login sees every property; staff/wardens are assigned to exactly one PG and only see that PG's data
+- **Rooms & facilities** — floor-by-floor layout, bed-by-bed occupancy, a standard facility checklist per room (bed, mattress, fan, geyser, attached bathroom, etc.) with condition tracking, and a maintenance flag for rooms that need attention
+- **Residents** — full hosteller profile (phone, Aadhaar, emergency contact, agreement signed, police verification status), with automatic refund-eligibility calculation based on notice period
+- **Rent collection** — month-by-month, who's paid, who's pending, who's overdue past the 5th
+- **Expenses — everything that goes out** — groceries, milk, electricity, water, Wi-Fi, staff salary, and the rent *you* pay to the landlord, all categorized so month-end is just reading a number, never reconstructing from memory
+- **Dashboard** — occupancy, this month's money in vs out, category breakdown of every expense, rooms needing maintenance, and a priority list of who's vacating soonest with their refund eligibility
 
-Built to run **completely free** on Cloudflare Pages + Cloudflare D1 (database). No monthly hosting bill. Works on any phone browser, and can be "installed" to a phone home screen like an app.
-
----
-
-## How this is built (so you understand what you own)
-
-- **Frontend**: Plain HTML/CSS/JavaScript — no complicated frameworks, no build step. Easy for any future developer (or AI assistant) to read and edit.
-- **Backend**: Cloudflare Pages Functions — small serverless functions that read/write the database.
-- **Database**: Cloudflare D1 — a real shared SQL database, so you and your staff always see the same live data, from any phone or computer.
-- **Hosting**: Cloudflare Pages — free, fast, gives you a `yourapp.pages.dev` web address (you can later connect a custom domain like `pg.yourdomain.com` if you buy one).
-
-Everything fits inside Cloudflare's free tier for a PG of this size (29 rooms). You will not be charged unless you deliberately upgrade.
+Runs **completely free** on Cloudflare Pages + Cloudflare D1. No monthly hosting bill.
 
 ---
 
-## Part 1 — One-time setup (do this once)
+## What changed from the single-PG version
 
-You will need:
+| | v1 | v2 (this version) |
+|---|---|---|
+| PGs supported | One | Unlimited |
+| Staff access | Everyone sees everything | Admin sees all; staff locked to their assigned PG |
+| Expense categories | Generic | Specific: groceries, milk, electricity, water, wifi, landlord rent, salary, maintenance, etc. |
+| Room facilities | Not tracked | Full checklist per room with condition (good/damaged/missing) |
+| Refund eligibility | Manual judgment | Calculated automatically from notice period (30-day rule) |
+| Maintenance tracking | Not present | Per-room flag + note, surfaced on dashboard |
+
+---
+
+## How this is built
+
+- **Frontend**: Plain HTML/CSS/JavaScript — no build tools
+- **Backend**: Cloudflare Pages Functions (small serverless functions)
+- **Database**: Cloudflare D1 — one shared SQL database, every table scoped by `pg_id` so properties never mix
+- **Hosting**: Cloudflare Pages — free `.pages.dev` address, custom domain optional
+
+Everything fits inside Cloudflare's free tier even with several PGs at this scale.
+
+---
+
+## Part 1 — Deploying it (GitHub + Cloudflare, step by step)
+
+This is the most reliable, repeatable way to deploy — and it's the same method whether this is your first deploy or you're updating later. Every future change you make just needs `git push`.
+
+You'll need:
 - A free [Cloudflare account](https://dash.cloudflare.com/sign-up)
-- A free [GitHub account](https://github.com/signup) (to hold your code so Cloudflare can deploy it)
-- A computer (setup is easier on a laptop/desktop, even though daily use will be on mobile)
+- A free [GitHub account](https://github.com/signup)
+- A computer (one-time setup is easier here; daily use will be on your phone)
 
-### Step 1 — Put this project on GitHub
+### Step 1 — Put the project on GitHub
 
-1. Go to [github.com/new](https://github.com/new) and create a new **private** repository called `pg-manager`.
-2. On your computer, open a terminal in this project folder and run:
+1. Go to [github.com/new](https://github.com/new) → create a **private** repository, e.g. `svpg-manager`.
+2. On your computer, open a terminal in this project folder:
    ```
    git init
    git add .
-   git commit -m "Initial PG Manager app"
+   git commit -m "Initial SVPG Manager app"
    git branch -M main
-   git remote add origin https://github.com/YOUR_USERNAME/pg-manager.git
+   git remote add origin https://github.com/YOUR_USERNAME/svpg-manager.git
    git push -u origin main
    ```
-   (Replace `YOUR_USERNAME` with your actual GitHub username. GitHub will show you this exact command on the page after you create the repo.)
 
-### Step 2 — Create the database on Cloudflare
+### Step 2 — Create the database
 
-1. Install Wrangler (Cloudflare's command-line tool) if you haven't:
+1. Install Wrangler (Cloudflare's CLI):
    ```
    npm install -g wrangler
    ```
-2. Log in to Cloudflare from the terminal:
+2. Log in:
    ```
    wrangler login
    ```
-   This opens a browser tab — click "Allow."
-3. Create your database:
+3. Create the database:
    ```
-   wrangler d1 create pg-manager-db
+   wrangler d1 create svpg-manager-db
    ```
-4. This prints something like:
-   ```
-   [[d1_databases]]
-   binding = "DB"
-   database_name = "pg-manager-db"
-   database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-   ```
-5. Open `wrangler.toml` in this project and replace `REPLACE_WITH_YOUR_DATABASE_ID` with the real `database_id` you were just given. Save the file.
-6. Push this change to GitHub too:
+4. Copy the `database_id` it prints, and paste it into `wrangler.toml` (replacing `REPLACE_WITH_YOUR_DATABASE_ID`).
+5. Push that change:
    ```
    git add wrangler.toml
    git commit -m "Add real database id"
    git push
    ```
 
-### Step 3 — Load the room structure into the database
+### Step 3 — Load your room structure into the database
 
-This creates your 29 rooms (matching your flyer: Ground+6 floors) in the live database:
 ```
-wrangler d1 migrations apply pg-manager-db --remote
+wrangler d1 migrations apply svpg-manager-db --remote
 ```
-Type `y` if it asks for confirmation.
-
-> You can edit room numbers, rent amounts, or sharing type later from inside the app itself (Rooms tab → + button), so don't worry about getting every detail perfect right now.
+This creates your first PG (Sri Lakshmi Venkateshwara) with its 29 rooms and standard facility checklist already filled in.
 
 ### Step 4 — Connect Cloudflare Pages to your GitHub repo
 
-1. Go to the [Cloudflare dashboard](https://dash.cloudflare.com) → **Workers & Pages** → **Create Application** → **Pages** → **Connect to Git**.
-2. Choose your `pg-manager` repository.
+1. [Cloudflare dashboard](https://dash.cloudflare.com) → **Workers & Pages** → **Create Application** → **Pages** → **Connect to Git**.
+2. Pick your `svpg-manager` repo.
 3. Build settings:
    - **Framework preset**: None
    - **Build command**: (leave blank)
    - **Build output directory**: `public`
-4. Click **Save and Deploy**.
+4. **Save and Deploy**.
 
-### Step 5 — Bind the database to your Pages project
+### Step 5 — Bind the database
 
-Your deployed site can't see the database yet — you need to connect them:
-1. In Cloudflare dashboard, open your new Pages project → **Settings** → **Functions** → **D1 database bindings**.
-2. Click **Add binding**.
-   - **Variable name**: `DB` (must be exactly this, capital letters)
-   - **D1 database**: select `pg-manager-db`
-3. Save, then go to **Deployments** and click **Retry deployment** (or just push any small change to GitHub) so the binding takes effect.
+1. Your Pages project → **Settings** → **Functions** → **D1 database bindings** → **Add binding**.
+2. Variable name: `DB` (exact, capital letters). D1 database: `svpg-manager-db`.
+3. Save, then **Retry deployment** so the binding takes effect.
 
-### Step 6 — Create your owner login
+### Step 6 — Create your admin login
 
-1. Visit your live site: `https://pg-manager-xxx.pages.dev` (Cloudflare shows you the exact URL after deploy).
-2. Since no account exists yet, you'll see a **"Create your owner login"** form automatically. Fill in your name, phone, a username, and a password (6+ characters).
-3. Click **Create Owner Account**, then log in.
+1. Visit your live URL (Cloudflare shows you `https://svpg-manager-xxx.pages.dev` after deploy).
+2. You'll see **"Create your admin login and your first PG"** automatically — this only appears once.
+3. Fill in your details and the PG name, then log in.
 
-That's it — setup is done. This form disables itself automatically after your first account is created, so it's safe to leave live.
+That's it. This setup screen disables itself permanently after the first account is created.
 
 ---
 
-## Part 2 — Using the app day to day
+## About the ChatGPT instructions you mentioned
 
-### Dashboard (Home tab)
-Shows at a glance: beds occupied vs total, this month's rent collected vs pending, expenses, and net money. Also lists everyone who has given vacate notice, sorted with the earliest leaver first — this is your **priority list**.
-
-### Rooms tab
-Floor-by-floor grid. Green = full, yellow = partially filled, white = empty. Tap any room to see bed-by-bed detail and assign a new resident to a vacant bed. Tap **+** to add a brand new room if you expand the PG later.
-
-### Residents tab
-Three filters: **Active**, **Vacating** (notice given), **Vacated** (history). Tap any resident to see their full details and payment history. From here you:
-- **Record Vacate Notice** — log the date they informed you and when they plan to leave. Per your house rules, this is what determines if their advance is refundable.
-- **Mark as Vacated** — frees up their bed for a new resident and records any refund paid.
-
-Tap **+** to add a new resident to a vacant bed.
-
-### Rent tab
-Shows the current month's rent status for every active resident — paid, pending, partial, or overdue (automatically flagged once it's past the 5th, per your house rule). Tap **Collect** next to any pending resident to record a payment (cash/UPI/bank transfer). Use the arrows at the top to look at past or future months.
-
-### Expenses tab
-Log anything you pay out — electricity, maintenance, staff salary, groceries, Wi-Fi, water. This is what completes the picture: rent collected minus expenses paid = your actual net income, visible right on the Dashboard.
-
-### Settings tab
-Owner-only: add staff/warden logins here. Each staff member gets their own username and password, and sees the exact same live data as you (it's all one shared database).
+If you paste them in, I'll check them line by line against this actual project (file structure, wrangler config, database commands) before you follow any of them — generic AI-written deployment steps sometimes assume a different project layout, and I'd rather confirm than have you hit a wall I could've caught first.
 
 ---
 
-## Adding staff/warden logins
+## Part 2 — Using the app
 
-Log in as the owner, go to the **Settings** tab, and tap **+**. Fill in their name and a username/password — that's it, they can now log in from their own phone and see the same live data as you.
+### Dashboard
+At a glance: occupancy, this month's rent collected vs pending, every expense category broken down (so you can see at a glance how much went to groceries vs landlord rent vs electricity), rooms flagged for maintenance, and everyone who's given notice — sorted soonest-first — each with an automatic **refund eligible / not eligible** badge based on whether they gave 30+ days notice.
+
+### Switching PGs (admin only)
+Tap the property name at the top of the screen. You'll see every PG you manage — tap one to switch the whole app to that property's data, or tap **+ Add Another PG** to bring a new property online. Staff logins don't see this — they're locked to their assigned PG automatically.
+
+### Rooms
+Floor-by-floor grid, color-coded by occupancy. A small red dot means the room needs maintenance. Tap any room to:
+- See bed-by-bed occupancy and assign new residents to vacant beds
+- Mark the room for maintenance with a note (clears the dashboard alert once unchecked)
+- Review and update the facility checklist (12 standard items per room) — mark anything damaged or missing during check-in/checkout inspections
+
+### Residents
+Filter by Active / Vacating / Vacated. Full profile includes Aadhaar, agreement status, police verification. **Record Vacate Notice** logs the date — the app then automatically tells you whether they're eligible for their advance refund based on the 30-day rule, no manual calculation needed.
+
+### Rent
+Month-by-month view, auto-generates each resident's due amount, flags overdue (past the 5th), one-tap to collect a payment.
+
+### Expenses
+This is your complete money-out picture. Categories cover exactly what you described needing to track:
+- **Groceries** (food ingredients), **Milk**, **Electricity**, **Water**, **Wi-Fi**
+- **Rent paid to Landlord** — this is what *you* pay out, kept completely separate from resident rent income so the two never get confused
+- Staff Salary, Housekeeping, Maintenance, Repairs, Plumbing, Furniture, Cleaning, Other
+
+Browse by month with the arrows at the top. Tap any entry to edit or delete it. The category breakdown card shows exactly where money went, and the Dashboard's net figure (rent collected − all expenses) is always accurate because nothing here is reconstructed from memory — it's whatever you've logged.
+
+### Settings (admin only)
+- Add a new PG, or edit an existing PG's name/address/landlord details
+- Add staff/warden logins, each assigned to one specific PG — they'll only ever see that property's rooms, residents, rent, and expenses
 
 ---
 
-## Data safety
+## Data safety & backups
 
-- All your data lives in Cloudflare D1, which is a real database with redundancy — it is **not** stored in the browser, so switching phones or clearing browser data never loses anything.
-- Recommended: every few months, back up your data by running:
-  ```
-  wrangler d1 export pg-manager-db --remote --output=backup.sql
-  ```
-  Keep that file somewhere safe (email it to yourself, save to Google Drive).
+All data lives in Cloudflare D1 — never lost by clearing your phone's browser or switching devices. Back up periodically:
+```
+wrangler d1 export svpg-manager-db --remote --output=backup.sql
+```
+Save that file somewhere safe (email it to yourself, Google Drive).
 
-## Free tier limits (you will not hit these for a 29-room PG)
+## Free tier limits (you won't hit these)
 
 | Service | Free limit |
 |---|---|
 | Pages | 500 deploys/month, unlimited bandwidth |
-| Workers/Functions | 100,000 requests/day |
-| D1 database | 5 GB storage, 5M reads/day, 100K writes/day |
+| Functions | 100,000 requests/day |
+| D1 | 5 GB storage, 5M reads/day, 100K writes/day |
+
+This comfortably covers several PGs at once.
 
 ## If something breaks
 
-- **"Unauthorized" errors everywhere**: your login session expired (sessions last 30 days) — just log in again.
-- **Setup form keeps showing**: the database binding (Part 1, Step 5) likely isn't connected — double check the variable name is exactly `DB`.
-- **Changes you make locally don't show on the live site**: make sure you `git push`-ed, and that you ran migrations with `--remote` (not `--local`, which only affects your own computer).
+- **"Unauthorized" everywhere**: session expired (30 days) — log in again.
+- **Setup screen keeps showing**: D1 binding isn't connected (Part 1, Step 5) — check the variable name is exactly `DB`.
+- **Local changes don't show live**: make sure you `git push`-ed and ran migrations with `--remote`.
+- **A staff member can't see a PG you just added**: assign them to it from Settings → they're locked to whichever PG they were created under.

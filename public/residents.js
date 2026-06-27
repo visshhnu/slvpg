@@ -5,6 +5,10 @@ let residentFilter = 'active';
 async function loadResidents() {
   const el = document.getElementById('screen-residents');
   el.innerHTML = `<div class="card"><div class="empty-state">Loading…</div></div>`;
+  if (!state.currentPgId) {
+    el.innerHTML = `<div class="card"><div class="empty-state"><div class="empty-state-title">No PG selected</div></div></div>`;
+    return;
+  }
   try {
     state.residents = await api('/residents');
     renderResidents();
@@ -72,6 +76,12 @@ async function openResidentDetail(id) {
   }
 }
 
+function policeVerifBadge(status) {
+  if (status === 'verified') return `<span class="badge badge-green">Verified</span>`;
+  if (status === 'submitted') return `<span class="badge badge-amber">Submitted</span>`;
+  return `<span class="badge badge-red">Pending</span>`;
+}
+
 function showResidentDetailModal(r) {
   openModal(`
     <div class="modal-header">
@@ -79,14 +89,20 @@ function showResidentDetailModal(r) {
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
 
+    ${r.photo_url ? `<img src="${escapeHtml(r.photo_url)}" style="width:80px;height:80px;border-radius:12px;object-fit:cover;margin-bottom:12px;">` : ''}
+
     <div class="card" style="margin-bottom:12px;">
       <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Phone</div></div><div>${escapeHtml(r.phone)}</div></div>
       ${r.alt_phone ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Alt Phone</div></div><div>${escapeHtml(r.alt_phone)}</div></div>` : ''}
+      ${r.aadhaar_number ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Aadhaar</div></div><div>${escapeHtml(r.aadhaar_number)}</div></div>` : ''}
       <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Room</div></div><div>${r.floor || '—'} ${r.room_number || ''}${r.bed_label ? '-' + r.bed_label : ''}</div></div>
       <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Joined</div></div><div>${fmtDate(r.join_date)}</div></div>
       <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Advance Paid</div></div><div>${fmtMoney(r.advance_paid)}</div></div>
       ${r.occupation ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Occupation</div></div><div>${escapeHtml(r.occupation)}</div></div>` : ''}
+      ${r.company_or_college ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Company/College</div></div><div>${escapeHtml(r.company_or_college)}</div></div>` : ''}
       ${r.emergency_contact_name ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Emergency Contact</div></div><div>${escapeHtml(r.emergency_contact_name)} (${escapeHtml(r.emergency_contact_phone || '')})</div></div>` : ''}
+      <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Agreement Signed</div></div><div>${r.agreement_signed ? '✅ Yes' : '❌ No'}</div></div>
+      <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Police Verification</div></div><div>${policeVerifBadge(r.police_verification_status)}</div></div>
     </div>
 
     ${r.status === 'active' ? `
@@ -97,6 +113,10 @@ function showResidentDetailModal(r) {
         <div class="card-title" style="color:var(--amber);">Vacate Notice</div>
         <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Notified on</div></div><div>${fmtDate(r.notice_date)}</div></div>
         <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Planned vacate date</div></div><div>${fmtDate(r.planned_vacate_date)}</div></div>
+        ${r.refund_eligibility ? `
+          <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Notice given</div></div><div>${r.refund_eligibility.notice_days_given} days before</div></div>
+          <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Refund Eligibility</div></div><div><span class="badge ${r.refund_eligibility.eligible ? 'badge-green' : 'badge-red'}">${r.refund_eligibility.eligible ? 'Eligible' : 'Not eligible'}</span></div></div>
+        ` : ''}
       </div>
       <button class="btn btn-danger" style="margin-bottom:10px;" onclick="confirmMarkVacated(${r.id})">Mark as Vacated &amp; Free Bed</button>
     ` : ''}
@@ -123,7 +143,7 @@ function openVacateNoticeForm(residentId) {
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <p style="font-size:13px;color:var(--ink-soft);margin-bottom:14px;">
-      Per house rules, advance won't be refunded if notice is given less than one month before vacating.
+      Per house rules, advance won't be refunded if notice is given less than 30 days before vacating. The app calculates this automatically once you save both dates.
     </p>
     <label>Notice Date</label>
     <input id="vac-notice-date" type="date" value="${today}">
@@ -210,6 +230,8 @@ async function openAddResidentModal(preselectedBedId) {
     <input id="res-name" placeholder="Resident's name">
     <label>Phone</label>
     <input id="res-phone" placeholder="10-digit phone number">
+    <label>Aadhaar Number (optional)</label>
+    <input id="res-aadhaar" placeholder="XXXX XXXX XXXX">
     <label>Bed</label>
     <select id="res-bed">
       <option value="">Select a vacant bed</option>
@@ -224,23 +246,38 @@ async function openAddResidentModal(preselectedBedId) {
       <option value="Student">Student</option>
       <option value="Working Professional">Working Professional</option>
     </select>
+    <label>Company / College (optional)</label>
+    <input id="res-company" placeholder="Optional">
     <label>Emergency Contact Name</label>
     <input id="res-emergency-name" placeholder="Optional">
     <label>Emergency Contact Phone</label>
     <input id="res-emergency-phone" placeholder="Optional">
-    <button class="btn btn-primary" onclick="submitAddResident()">Save Resident</button>
+    <label>Police Verification</label>
+    <select id="res-police">
+      <option value="pending">Pending</option>
+      <option value="submitted">Submitted</option>
+      <option value="verified">Verified</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+      <input type="checkbox" id="res-agreement" style="width:auto;margin:0;"> Agreement Signed
+    </label>
+    <button class="btn btn-primary" style="margin-top:14px;" onclick="submitAddResident()">Save Resident</button>
   `);
 }
 
 async function submitAddResident() {
   const name = document.getElementById('res-name').value.trim();
   const phone = document.getElementById('res-phone').value.trim();
+  const aadhaar_number = document.getElementById('res-aadhaar').value.trim();
   const bed_id = parseInt(document.getElementById('res-bed').value, 10);
   const join_date = document.getElementById('res-join').value;
   const advance_paid = parseInt(document.getElementById('res-advance').value, 10) || 0;
   const occupation = document.getElementById('res-occupation').value;
+  const company_or_college = document.getElementById('res-company').value.trim();
   const emergency_contact_name = document.getElementById('res-emergency-name').value.trim();
   const emergency_contact_phone = document.getElementById('res-emergency-phone').value.trim();
+  const police_verification_status = document.getElementById('res-police').value;
+  const agreement_signed = document.getElementById('res-agreement').checked;
 
   if (!name || !phone || !bed_id || !join_date) {
     showToast('Name, phone, bed and join date are required.', 'error');
@@ -250,7 +287,11 @@ async function submitAddResident() {
   try {
     await api('/residents', {
       method: 'POST',
-      body: JSON.stringify({ name, phone, bed_id, join_date, advance_paid, occupation, emergency_contact_name, emergency_contact_phone }),
+      body: JSON.stringify({
+        name, phone, aadhaar_number, bed_id, join_date, advance_paid, occupation,
+        company_or_college, emergency_contact_name, emergency_contact_phone,
+        police_verification_status, agreement_signed,
+      }),
     });
     closeModal();
     showToast('Resident added.', 'success');

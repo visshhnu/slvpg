@@ -3,6 +3,10 @@
 async function loadRooms() {
   const el = document.getElementById('screen-rooms');
   el.innerHTML = `<div class="card"><div class="empty-state">Loading…</div></div>`;
+  if (!state.currentPgId) {
+    el.innerHTML = `<div class="card"><div class="empty-state"><div class="empty-state-title">No PG selected</div></div></div>`;
+    return;
+  }
   try {
     state.rooms = await api('/rooms');
     renderRooms();
@@ -34,6 +38,7 @@ function renderRooms() {
             const cls = occCount === room.capacity ? 'full' : occCount === 0 ? 'empty' : 'partial';
             return `
               <div class="room-card ${cls}" onclick="openRoomDetail(${room.id})">
+                ${room.needs_maintenance ? '<div class="maint-dot"></div>' : ''}
                 <div class="room-num">${escapeHtml(room.room_number)}</div>
                 <div class="room-occ">${occCount}/${room.capacity}</div>
               </div>
@@ -45,9 +50,17 @@ function renderRooms() {
   }).join('');
 }
 
-function openRoomDetail(roomId) {
+async function openRoomDetail(roomId) {
   const room = state.rooms.find(r => r.id === roomId);
   if (!room) return;
+
+  let fullDetail;
+  try {
+    fullDetail = await api(`/rooms/${roomId}`);
+  } catch (e) {
+    showToast(e.message, 'error');
+    return;
+  }
 
   openModal(`
     <div class="modal-header">
@@ -61,6 +74,17 @@ function openRoomDetail(roomId) {
         <div class="stat-box"><div class="stat-num" style="font-size:16px;">${fmtMoney(room.refundable_amount)}</div><div class="stat-label">Refundable</div></div>
       </div>
     </div>
+
+    <div class="card" style="margin-bottom:14px; ${room.needs_maintenance ? 'border-color:var(--red);' : ''}">
+      <div class="list-row" style="border:none; padding:0 0 8px;">
+        <div class="list-row-main"><div class="list-row-title">Needs Maintenance</div></div>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="maint-toggle" ${room.needs_maintenance ? 'checked' : ''} onchange="toggleMaintenance(${roomId}, this.checked)" style="width:auto;margin:0;">
+        </label>
+      </div>
+      ${room.needs_maintenance ? `<input id="maint-note" placeholder="What needs fixing?" value="${escapeHtml(room.maintenance_note || '')}" onblur="saveMaintNote(${roomId}, this.value)">` : ''}
+    </div>
+
     ${room.beds.map(bed => `
       <div class="card" style="margin-bottom:10px;">
         <div class="list-row" style="border:none;padding:0;">
@@ -76,7 +100,52 @@ function openRoomDetail(roomId) {
         </div>
       </div>
     `).join('')}
+
+    <div class="card-title" style="margin-top:6px;">Room Facilities Checklist</div>
+    <div class="card">
+      ${fullDetail.facilities.map(f => `
+        <div class="list-row">
+          <div class="list-row-main">
+            <div class="list-row-title">${escapeHtml(f.item_name)} <span style="color:var(--ink-soft);font-weight:500;">×${f.quantity}</span></div>
+          </div>
+          <select onchange="updateFacilityCondition(${f.id}, this.value)" style="width:auto;margin:0;padding:6px 8px;font-size:12px;">
+            <option value="good" ${f.condition === 'good' ? 'selected' : ''}>Good</option>
+            <option value="damaged" ${f.condition === 'damaged' ? 'selected' : ''}>Damaged</option>
+            <option value="missing" ${f.condition === 'missing' ? 'selected' : ''}>Missing</option>
+          </select>
+        </div>
+      `).join('')}
+    </div>
   `);
+}
+
+async function toggleMaintenance(roomId, checked) {
+  try {
+    await api(`/rooms/${roomId}`, { method: 'PATCH', body: JSON.stringify({ needs_maintenance: checked }) });
+    showToast(checked ? 'Marked for maintenance.' : 'Maintenance cleared.', 'success');
+    state.rooms = await api('/rooms');
+    closeModal();
+    renderRooms();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function saveMaintNote(roomId, note) {
+  try {
+    await api(`/rooms/${roomId}`, { method: 'PATCH', body: JSON.stringify({ maintenance_note: note }) });
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function updateFacilityCondition(facilityId, condition) {
+  try {
+    await api(`/room-facilities/${facilityId}`, { method: 'PATCH', body: JSON.stringify({ condition }) });
+    showToast('Updated.', 'success');
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
 }
 
 function openAddRoomModal() {
@@ -107,6 +176,7 @@ function openAddRoomModal() {
     <label>Refundable Amount</label>
     <input id="rm-refund" type="number" placeholder="4000">
     <button class="btn btn-primary" onclick="submitAddRoom()">Save Room</button>
+    <p style="font-size:12px;color:var(--ink-soft);text-align:center;margin-top:8px;">A standard facilities checklist (bed, mattress, fan, geyser, etc.) is added automatically — edit it from the room's detail screen.</p>
   `);
 }
 

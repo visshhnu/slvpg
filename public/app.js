@@ -1,19 +1,28 @@
-// ===== PG Manager — app.js =====
-// Vanilla JS single-page app. No build step. Talks to /api/* (Cloudflare Pages Functions + D1).
+// ===== SVPG Manager — app.js =====
+// Vanilla JS single-page app. Talks to /api/* (Cloudflare Pages Functions + D1).
+// Multi-PG aware: admin can switch between PGs; staff are locked to one.
 
 const state = {
-  staff: null,
+  staff: null,          // { name, role, pgId }
+  currentPgId: null,    // the PG currently being viewed
+  pgList: [],           // all PGs (admin) or just their one (staff)
   rooms: [],
   residents: [],
   rentMonth: new Date().toISOString().slice(0, 7),
   rentData: null,
-  expenses: [],
+  expensesData: null,
   currentTab: 'dashboard',
 };
 
 // ---------- low-level fetch helper ----------
+// Automatically appends ?pg_id=N to every API call so every screen is scoped
+// to whichever PG is currently selected.
 async function api(path, options = {}) {
-  const res = await fetch(`/api${path}`, {
+  let url = `/api${path}`;
+  if (state.currentPgId && !path.includes('pg_id=')) {
+    url += (path.includes('?') ? '&' : '?') + `pg_id=${state.currentPgId}`;
+  }
+  const res = await fetch(url, {
     headers: { 'Content-Type': 'application/json' },
     credentials: 'same-origin',
     ...options,
@@ -50,6 +59,11 @@ function monthLabel(ym) {
   return date.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 }
 
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
 // ---------- AUTH ----------
 async function checkSetup() {
   try {
@@ -64,6 +78,7 @@ async function checkSetup() {
 async function doSetup() {
   const name = document.getElementById('setup-name').value.trim();
   const phone = document.getElementById('setup-phone').value.trim();
+  const pgName = document.getElementById('setup-pgname').value.trim();
   const username = document.getElementById('setup-username').value.trim();
   const password = document.getElementById('setup-password').value;
   const errEl = document.getElementById('setup-error');
@@ -74,7 +89,7 @@ async function doSetup() {
     return;
   }
   try {
-    await api('/setup', { method: 'POST', body: JSON.stringify({ name, phone, username, password }) });
+    await api('/setup', { method: 'POST', body: JSON.stringify({ name, phone, username, password, pgName }) });
     showToast('Account created. Please log in.', 'success');
     document.getElementById('setup-form').classList.add('hidden');
     document.getElementById('login-form').classList.remove('hidden');
@@ -97,7 +112,7 @@ async function doLogin() {
   try {
     const data = await api('/login', { method: 'POST', body: JSON.stringify({ username, password }) });
     state.staff = data;
-    enterApp();
+    await enterApp();
   } catch (e) {
     errEl.textContent = e.message;
   }
@@ -106,16 +121,34 @@ async function doLogin() {
 async function doLogout() {
   await api('/logout', { method: 'POST' });
   state.staff = null;
+  state.currentPgId = null;
   document.getElementById('app-shell').classList.add('hidden');
   document.getElementById('auth-screen').classList.remove('hidden');
   document.getElementById('login-password').value = '';
 }
 
-function enterApp() {
+async function enterApp() {
   document.getElementById('auth-screen').classList.add('hidden');
   document.getElementById('app-shell').classList.remove('hidden');
-  document.getElementById('staff-name-label').textContent = `${state.staff.name} · ${state.staff.role}`;
+
+  // Load the PG list, pick which one to view
+  state.pgList = await api('/pgs');
+  if (state.staff.role === 'staff') {
+    state.currentPgId = state.staff.pgId;
+  } else if (state.pgList.length > 0) {
+    state.currentPgId = state.currentPgId || state.pgList[0].id;
+  }
+  updatePgLabel();
+
+  // Hide the PG switcher entirely for staff (locked to one PG, nothing to switch)
+  document.getElementById('pg-switcher').style.cursor = state.staff.role === 'admin' ? 'pointer' : 'default';
+
   switchTab('dashboard');
+}
+
+function updatePgLabel() {
+  const pg = state.pgList.find(p => p.id === state.currentPgId);
+  document.getElementById('pg-name-label').textContent = pg ? pg.name : '—';
 }
 
 // ---------- TAB NAVIGATION ----------
@@ -145,7 +178,7 @@ function switchTab(tab) {
     else fab.classList.add('hidden');
   };
   if (tab === 'dashboard' || tab === 'rent') fab.classList.add('hidden');
-  if (tab === 'settings' && state.staff.role !== 'owner') fab.classList.add('hidden');
+  if (tab === 'settings' && state.staff.role !== 'admin') fab.classList.add('hidden');
 
   const loaders = {
     dashboard: loadDashboard,
@@ -174,7 +207,8 @@ document.getElementById('modal-backdrop').addEventListener('click', (e) => {
   try {
     const me = await api('/me');
     state.staff = me;
-    enterApp();
+    state.currentPgId = me.pgId || null;
+    await enterApp();
     return;
   } catch {}
   checkSetup();

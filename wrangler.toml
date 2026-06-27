@@ -1,8 +1,8 @@
-name = "pg-manager"
+name = "svpg-manager"
 pages_build_output_dir = "public"
 compatibility_date = "2026-06-01"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "pg-manager-db"
+database_name = "svpg-manager-db"
 database_id = "REPLACE_WITH_YOUR_DATABASE_ID"
