@@ -58,48 +58,63 @@ function renderResidentCard(r) {
   const advPaid = r.advance_paid || 0;
   const advBalance = advExpected - advPaid;
 
-  // Determine border colour: red = overdue/missing receipt, amber = partial/advance pending, none = all good
-  const hasIssue = rent && (rent.status === 'overdue');
-  const hasWarning = (rent && (rent.status === 'partial' || rent.status === 'pending'))
-    || advBalance > 0 || !r.has_checkin_receipt;
+  // Grace period: new residents (joined <=3 days ago) don't get red check-in warning yet
+  const joinedDaysAgo = r.join_date
+    ? Math.floor((Date.now() - new Date(r.join_date).getTime()) / 86400000)
+    : 999;
+  const checkinUrgent = !r.has_checkin_receipt && joinedDaysAgo > 3;
+
+  // Border: red only for genuinely overdue rent; amber for softer issues
+  const hasIssue = rent && rent.status === 'overdue';
+  const hasWarning = (rent && (rent.status === 'partial'))
+    || advBalance > 0 || checkinUrgent;
   const borderStyle = hasIssue ? 'border-left:3px solid var(--red,#B23B3B);'
     : hasWarning ? 'border-left:3px solid var(--gold,#C99A3E);' : '';
+
+  // Smart money format — avoids ₹10,500 showing as ₹11k
+  function fmtBal(n) {
+    if (n >= 100000) return '₹' + (n/100000).toFixed(1).replace('.0','') + 'L';
+    if (n >= 1000)   return fmtMoney(n); // show exact: ₹10,500 not ₹11k
+    return fmtMoney(n);
+  }
 
   // Rent badge
   let rentBadge = '';
   if (r.status === 'active' || r.status === 'notice_given') {
     if (!rent) {
-      rentBadge = `<span class="badge badge-gray">No rent entry</span>`;
+      rentBadge = `<span class="badge badge-gray">No rent entry yet</span>`;
     } else if (rent.status === 'paid') {
       rentBadge = `<span class="badge badge-green">Rent paid</span>`;
     } else if (rent.status === 'overdue') {
       const bal = rent.amount_due - rent.amount_paid;
-      rentBadge = `<span class="badge badge-red">Overdue ₹${(bal/1000).toFixed(0)}k</span>`;
+      rentBadge = `<span class="badge badge-red">Overdue — ${fmtBal(bal)}</span>`;
     } else if (rent.status === 'partial') {
       const bal = rent.amount_due - rent.amount_paid;
-      rentBadge = `<span class="badge badge-amber">Partial — ₹${(bal/1000).toFixed(0)}k left</span>`;
+      rentBadge = `<span class="badge badge-amber">Partial — ${fmtBal(bal)} left</span>`;
     } else {
-      rentBadge = `<span class="badge badge-gray">Rent pending</span>`;
+      // pending = due date not passed yet, totally normal
+      rentBadge = `<span class="badge badge-gray">Rent due 5th</span>`;
     }
   }
 
-  // Advance badge — only show if not fully paid
+  // Advance badge — show exact amounts, only when balance remains
   const advBadge = advExpected > 0 && advBalance > 0
-    ? `<span class="badge badge-amber">Advance ₹${(advPaid/1000).toFixed(0)}k/₹${(advExpected/1000).toFixed(0)}k</span>`
+    ? `<span class="badge badge-amber">Advance ${fmtBal(advPaid)}/${fmtBal(advExpected)}</span>`
     : '';
 
-  // Check-in badge
+  // Check-in badge — gray (not red) within grace period
   const checkinBadge = r.has_checkin_receipt
     ? `<span class="badge badge-green">Check-in done</span>`
-    : `<span class="badge badge-red">No check-in receipt</span>`;
+    : checkinUrgent
+      ? `<span class="badge badge-red">No check-in receipt</span>`
+      : `<span class="badge badge-gray">Check-in pending</span>`;
 
-  // Vacating badge
   const vacateBadge = r.status === 'notice_given'
     ? `<span class="badge badge-amber">Leaves ${fmtDate(r.planned_vacate_date)}</span>` : '';
   const vacatedBadge = r.status === 'vacated'
     ? `<span class="badge badge-gray">Vacated</span>` : '';
 
-  // Rent progress bar — only for active with partial/overdue
+  // Progress bar — partial and overdue only; pending has nothing to show yet
   let progressBar = '';
   if (rent && rent.amount_due > 0 && rent.status !== 'paid' && rent.status !== 'pending') {
     const pct = Math.round((rent.amount_paid / rent.amount_due) * 100);
@@ -182,6 +197,7 @@ function showResidentDetailModal(r) {
       </div>
     ` : ''}
 
+    <button class="btn btn-outline" style="margin-bottom:10px;width:100%;" onclick="openEditResidentModal(${r.id}, ${JSON.stringify(r).replace(/"/g, '&quot;')})">Edit resident details</button>
     <button class="btn btn-outline" style="margin-bottom:10px;" onclick="openCheckinReceiptArea(${r.id})">Check-in Receipt</button>
 
     ${r.status === 'active' ? `
@@ -213,6 +229,98 @@ function showResidentDetailModal(r) {
       `).join('')
     }
   `);
+}
+
+async function openEditResidentModal(residentId, r) {
+  // Fetch fresh data in case card data is stale
+  try { r = await api(`/residents/${residentId}`); } catch(e) {}
+
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Edit — ${escapeHtml(r.name)}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+
+    <div style="font-size:11px;color:var(--ink-soft);margin-bottom:12px;">Update any details below. Leave a field blank to keep it unchanged.</div>
+
+    <label>Full name</label>
+    <input id="er-name" value="${escapeHtml(r.name || '')}">
+
+    <label>Phone</label>
+    <input id="er-phone" type="tel" value="${escapeHtml(r.phone || '')}">
+
+    <label>Alt phone</label>
+    <input id="er-altphone" type="tel" value="${escapeHtml(r.alt_phone || '')}">
+
+    <label>Aadhaar number</label>
+    <input id="er-aadhaar" value="${escapeHtml(r.aadhaar_number || '')}">
+
+    <label>PAN number</label>
+    <input id="er-pan" value="${escapeHtml(r.pan_number || '')}">
+
+    <label>Occupation</label>
+    <input id="er-occ" value="${escapeHtml(r.occupation || '')}">
+
+    <label>Company / College</label>
+    <input id="er-company" value="${escapeHtml(r.company_or_college || '')}">
+
+    <label>Emergency contact name</label>
+    <input id="er-emname" value="${escapeHtml(r.emergency_contact_name || '')}">
+
+    <label>Emergency contact phone</label>
+    <input id="er-emphone" type="tel" value="${escapeHtml(r.emergency_contact_phone || '')}">
+
+    <label>Police verification</label>
+    <select id="er-police">
+      <option value="pending" ${(r.police_verification_status||'pending')==='pending'?'selected':''}>Pending</option>
+      <option value="submitted" ${r.police_verification_status==='submitted'?'selected':''}>Submitted</option>
+      <option value="verified" ${r.police_verification_status==='verified'?'selected':''}>Verified</option>
+    </select>
+
+    <label>Agreement signed</label>
+    <select id="er-agreement">
+      <option value="0" ${!r.agreement_signed?'selected':''}>No</option>
+      <option value="1" ${r.agreement_signed?'selected':''}>Yes</option>
+    </select>
+
+    <label>Notes</label>
+    <textarea id="er-notes" rows="3">${escapeHtml(r.notes || '')}</textarea>
+
+    <button class="btn btn-primary" style="margin-top:16px;width:100%;" onclick="submitEditResident(${residentId})">Save changes</button>
+  `);
+}
+
+async function submitEditResident(residentId) {
+  const body = {
+    name: document.getElementById('er-name').value.trim(),
+    phone: document.getElementById('er-phone').value.trim(),
+    alt_phone: document.getElementById('er-altphone').value.trim() || null,
+    aadhaar_number: document.getElementById('er-aadhaar').value.trim() || null,
+    pan_number: document.getElementById('er-pan').value.trim() || null,
+    occupation: document.getElementById('er-occ').value.trim() || null,
+    company_or_college: document.getElementById('er-company').value.trim() || null,
+    emergency_contact_name: document.getElementById('er-emname').value.trim() || null,
+    emergency_contact_phone: document.getElementById('er-emphone').value.trim() || null,
+    police_verification_status: document.getElementById('er-police').value,
+    agreement_signed: document.getElementById('er-agreement').value === '1',
+    notes: document.getElementById('er-notes').value.trim() || null,
+  };
+
+  if (!body.name || !body.phone) {
+    showToast('Name and phone are required.', 'error'); return;
+  }
+
+  try {
+    await api(`/residents/${residentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+    closeModal();
+    showToast('Resident details updated.', 'success');
+    loadResidents();
+  } catch(e) {
+    showToast(e.message, 'error');
+  }
 }
 
 async function openCheckinReceiptArea(residentId) {
