@@ -44,28 +44,95 @@ function renderResidents() {
     return;
   }
 
-  el.innerHTML = filterBar + `
-    <div class="card">
-      ${list.map(r => `
-        <div class="list-row" onclick="openResidentDetail(${r.id})" style="cursor:pointer;">
-          <div class="list-row-main">
-            <div class="list-row-title">${escapeHtml(r.name)}</div>
-            <div class="list-row-sub">${r.floor || '—'} ${r.room_number || ''}${r.bed_label ? '-' + r.bed_label : ''} · ${escapeHtml(r.phone)}</div>
-          </div>
-          ${r.status === 'notice_given'
-            ? `<span class="badge badge-amber">Leaves ${fmtDate(r.planned_vacate_date)}</span>`
-            : r.status === 'vacated'
-              ? `<span class="badge badge-gray">Vacated</span>`
-              : `<span class="badge badge-green">Active</span>`}
-        </div>
-      `).join('')}
-    </div>
-  `;
+  el.innerHTML = filterBar + list.map(r => renderResidentCard(r)).join('') + `<div style="height:16px;"></div>`;
 }
 
 function setResidentFilter(f) {
   residentFilter = f;
   renderResidents();
+}
+
+function renderResidentCard(r) {
+  const rent = r.rent_this_month;
+  const advExpected = r.advance_deposit || 0;
+  const advPaid = r.advance_paid || 0;
+  const advBalance = advExpected - advPaid;
+
+  // Determine border colour: red = overdue/missing receipt, amber = partial/advance pending, none = all good
+  const hasIssue = rent && (rent.status === 'overdue');
+  const hasWarning = (rent && (rent.status === 'partial' || rent.status === 'pending'))
+    || advBalance > 0 || !r.has_checkin_receipt;
+  const borderStyle = hasIssue ? 'border-left:3px solid var(--red,#B23B3B);'
+    : hasWarning ? 'border-left:3px solid var(--gold,#C99A3E);' : '';
+
+  // Rent badge
+  let rentBadge = '';
+  if (r.status === 'active' || r.status === 'notice_given') {
+    if (!rent) {
+      rentBadge = `<span class="badge badge-gray">No rent entry</span>`;
+    } else if (rent.status === 'paid') {
+      rentBadge = `<span class="badge badge-green">Rent paid</span>`;
+    } else if (rent.status === 'overdue') {
+      const bal = rent.amount_due - rent.amount_paid;
+      rentBadge = `<span class="badge badge-red">Overdue ₹${(bal/1000).toFixed(0)}k</span>`;
+    } else if (rent.status === 'partial') {
+      const bal = rent.amount_due - rent.amount_paid;
+      rentBadge = `<span class="badge badge-amber">Partial — ₹${(bal/1000).toFixed(0)}k left</span>`;
+    } else {
+      rentBadge = `<span class="badge badge-gray">Rent pending</span>`;
+    }
+  }
+
+  // Advance badge — only show if not fully paid
+  const advBadge = advExpected > 0 && advBalance > 0
+    ? `<span class="badge badge-amber">Advance ₹${(advPaid/1000).toFixed(0)}k/₹${(advExpected/1000).toFixed(0)}k</span>`
+    : '';
+
+  // Check-in badge
+  const checkinBadge = r.has_checkin_receipt
+    ? `<span class="badge badge-green">Check-in done</span>`
+    : `<span class="badge badge-red">No check-in receipt</span>`;
+
+  // Vacating badge
+  const vacateBadge = r.status === 'notice_given'
+    ? `<span class="badge badge-amber">Leaves ${fmtDate(r.planned_vacate_date)}</span>` : '';
+  const vacatedBadge = r.status === 'vacated'
+    ? `<span class="badge badge-gray">Vacated</span>` : '';
+
+  // Rent progress bar — only for active with partial/overdue
+  let progressBar = '';
+  if (rent && rent.amount_due > 0 && rent.status !== 'paid' && rent.status !== 'pending') {
+    const pct = Math.round((rent.amount_paid / rent.amount_due) * 100);
+    const fillColor = rent.status === 'overdue' ? 'var(--red,#B23B3B)' : 'var(--gold,#C99A3E)';
+    progressBar = `
+      <div style="margin-top:8px;">
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ink-soft);margin-bottom:3px;">
+          <span>Rent this month</span><span>${fmtMoney(rent.amount_paid)} of ${fmtMoney(rent.amount_due)}</span>
+        </div>
+        <div style="height:4px;background:var(--border);border-radius:99px;overflow:hidden;">
+          <div style="width:${pct}%;height:100%;background:${fillColor};border-radius:99px;"></div>
+        </div>
+      </div>`;
+  }
+
+  return `
+    <div class="card" style="margin-bottom:8px;cursor:pointer;${borderStyle}" onclick="openResidentDetail(${r.id})">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+        <div style="min-width:0;">
+          <div style="font-size:14px;font-weight:500;">${escapeHtml(r.name)}</div>
+          <div style="font-size:11px;color:var(--ink-soft);margin-top:2px;">
+            ${r.floor || '—'} ${r.room_number || ''}${r.bed_label ? '-' + r.bed_label : ''} · ${escapeHtml(r.phone)}
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--ink-soft);white-space:nowrap;flex-shrink:0;">
+          Joined ${fmtDate(r.join_date)}
+        </div>
+      </div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:7px;">
+        ${rentBadge}${advBadge}${checkinBadge}${vacateBadge}${vacatedBadge}
+      </div>
+      ${progressBar}
+    </div>`;
 }
 
 async function openResidentDetail(id) {

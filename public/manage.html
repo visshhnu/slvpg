@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0F2A4A">
+<title>SVPG Manager — Staff Login</title>
+<link rel="manifest" href="/manifest.json">
+<style>
+:root {
+  --navy: #0F2A4A;
+  --navy-light: #1B3F68;
+  --gold: #C99A3E;
+  --gold-light: #E0BC6B;
+  --cream: #FAF6EE;
+  --card: #FFFFFF;
+  --green: #2F7A4F;
+  --green-bg: #E7F3EC;
+  --red: #B23B3B;
+  --red-bg: #FBEAEA;
+  --amber: #B8860B;
+  --amber-bg: #FBF1DE;
+  --ink: #262321;
+  --ink-soft: #6B6560;
+  --border: #E8E1D3;
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--cream);
+  color: var(--ink);
+  min-height: 100vh;
+  padding-bottom: 76px;
+}
+
+.app-header {
+  background: linear-gradient(135deg, var(--navy) 0%, var(--navy-light) 100%);
+  color: white;
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  box-shadow: 0 2px 12px rgba(15,42,74,0.18);
+}
+
+.arch-mark {
+  width: 34px;
+  height: 38px;
+  flex-shrink: 0;
+}
+
+.header-text { flex: 1; min-width: 0; }
+.header-title {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.header-sub {
+  font-size: 11px;
+  color: var(--gold-light);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.header-action {
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: white;
+  border-radius: 10px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+main { padding: 16px; max-width: 720px; margin: 0 auto; }
+
+.screen { display: none; animation: fadein 0.2s ease; }
+.screen.active { display: block; }
+@keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.card-title {
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--navy);
+  margin: 0 0 12px 0;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.stat-box {
+  background: var(--cream);
+  border-radius: 12px;
+  padding: 14px 12px;
+  border: 1px solid var(--border);
+}
+.stat-num {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--navy);
+  line-height: 1.1;
+}
+.stat-num.green { color: var(--green); }
+.stat-num.red { color: var(--red); }
+.stat-num.gold { color: var(--gold); }
+.stat-label {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  font-weight: 600;
+  margin-top: 3px;
+}
+
+.section-heading {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 22px 0 10px 2px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-radius: 11px;
+  padding: 12px 18px;
+  font-size: 14.5px;
+  font-weight: 700;
+  cursor: pointer;
+  width: 100%;
+}
+.btn-primary { background: var(--navy); color: white; }
+.btn-gold { background: var(--gold); color: white; }
+.btn-outline { background: transparent; color: var(--navy); border: 1.5px solid var(--navy); }
+.btn-danger { background: var(--red); color: white; }
+.btn-sm { padding: 8px 12px; font-size: 12.5px; width: auto; }
+
+input, select, textarea {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  font-size: 15px;
+  font-family: inherit;
+  background: white;
+  color: var(--ink);
+  margin-bottom: 12px;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  margin-bottom: 5px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.badge-green { background: var(--green-bg); color: var(--green); }
+.badge-red { background: var(--red-bg); color: var(--red); }
+.badge-amber { background: var(--amber-bg); color: var(--amber); }
+.badge-gray { background: #EFEAE0; color: var(--ink-soft); }
+.badge-gold { background: #F7ECD3; color: var(--gold); }
+.badge-maint { background: var(--red-bg); color: var(--red); }
+
+.room-card { position: relative; }
+.room-card .maint-dot {
+  position: absolute;
+  top: 4px; right: 4px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+}
+
+.doc-preview {
+  width: 100%;
+  max-height: 160px;
+  object-fit: contain;
+  border-radius: 10px;
+  border: 1.5px solid var(--border);
+  margin-bottom: 12px;
+  background: var(--cream);
+}
+
+.list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  gap: 10px;
+}
+.list-row:last-child { border-bottom: none; }
+.list-row-main { flex: 1; min-width: 0; }
+.list-row-title { font-weight: 700; font-size: 14.5px; }
+.list-row-sub { font-size: 12.5px; color: var(--ink-soft); margin-top: 2px; }
+.list-row-amount { font-weight: 800; font-size: 15px; text-align: right; white-space: nowrap; }
+
+.tabbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: white;
+  border-top: 1px solid var(--border);
+  display: flex;
+  z-index: 50;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.tab-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  padding: 9px 4px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  color: var(--ink-soft);
+}
+.tab-btn.active { color: var(--navy); }
+.tab-btn svg { width: 22px; height: 22px; }
+.tab-label { font-size: 10.5px; font-weight: 700; }
+
+.empty-state {
+  text-align: center;
+  padding: 36px 20px;
+  color: var(--ink-soft);
+}
+.empty-state svg { width: 48px; height: 48px; opacity: 0.4; margin-bottom: 10px; }
+.empty-state-title { font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+
+.floor-group { margin-bottom: 18px; }
+.floor-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--gold);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 8px;
+}
+.room-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  gap: 8px;
+}
+.room-card {
+  border-radius: 10px;
+  padding: 8px 6px;
+  text-align: center;
+  border: 1.5px solid var(--border);
+  cursor: pointer;
+}
+.room-card.full { background: var(--green-bg); border-color: var(--green); }
+.room-card.partial { background: var(--amber-bg); border-color: var(--amber); }
+.room-card.empty { background: var(--card); border-color: var(--border); }
+.room-num { font-weight: 800; font-size: 13px; }
+.room-occ { font-size: 10.5px; color: var(--ink-soft); margin-top: 2px; }
+
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(15,42,74,0.45);
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 200;
+}
+.modal-backdrop.open { display: flex; }
+.modal-sheet {
+  background: var(--cream);
+  width: 100%;
+  max-width: 720px;
+  max-height: 88vh;
+  overflow-y: auto;
+  border-radius: 18px 18px 0 0;
+  padding: 18px 18px 28px;
+}
+.modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 14px;
+}
+.modal-title { font-size: 17px; font-weight: 800; }
+.modal-close {
+  background: var(--border); border: none; border-radius: 50%;
+  width: 30px; height: 30px; font-size: 16px; cursor: pointer; color: var(--ink-soft);
+}
+
+.toast {
+  position: fixed;
+  bottom: 88px;
+  left: 50%;
+  transform: translateX(-50%) translateY(10px);
+  background: var(--ink);
+  color: white;
+  padding: 11px 18px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.25s ease;
+  z-index: 300;
+  max-width: 88%;
+  text-align: center;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.error { background: var(--red); }
+.toast.success { background: var(--green); }
+
+.auth-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.auth-card {
+  background: white;
+  border-radius: 18px;
+  padding: 30px 24px;
+  max-width: 380px;
+  width: 100%;
+  box-shadow: 0 8px 30px rgba(15,42,74,0.12);
+}
+.auth-logo { width: 56px; height: 62px; margin: 0 auto 14px; display: block; }
+.auth-title { text-align: center; font-size: 20px; font-weight: 800; color: var(--navy); margin-bottom: 2px; }
+.auth-sub { text-align: center; font-size: 12.5px; color: var(--gold); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 22px; }
+.auth-error { color: var(--red); font-size: 13px; font-weight: 600; margin: -4px 0 10px; min-height: 1px; }
+.hidden { display: none !important; }
+
+.row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+
+.fab {
+  position: fixed;
+  bottom: 90px;
+  right: 18px;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--gold);
+  color: white;
+  border: none;
+  font-size: 26px;
+  box-shadow: 0 6px 16px rgba(201,154,62,0.4);
+  cursor: pointer;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.month-nav button {
+  background: white;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  width: 36px; height: 36px;
+  font-size: 16px;
+  cursor: pointer;
+  color: var(--navy);
+}
+.month-nav-label { font-weight: 800; font-size: 15px; color: var(--navy); }
+
+@media (min-width: 600px) {
+  .room-grid { grid-template-columns: repeat(auto-fill, minmax(95px, 1fr)); }
+}
+</style>
+</head>
+<body>
+
+<!-- AUTH SCREEN -->
+<div id="auth-screen" class="auth-wrap">
+  <div class="auth-card">
+    <svg class="auth-logo" viewBox="0 0 56 62" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M28 2L8 14V58H48V14L28 2Z" stroke="#C99A3E" stroke-width="2.5" fill="#FAF6EE"/>
+      <path d="M28 8L14 17V52H42V17L28 8Z" stroke="#0F2A4A" stroke-width="2" fill="white"/>
+      <circle cx="28" cy="28" r="7" fill="#C99A3E"/>
+      <rect x="22" y="40" width="12" height="12" fill="#0F2A4A"/>
+    </svg>
+    <div class="auth-title">SVPG Manager</div>
+    <div class="auth-sub">Staff &amp; Management Login</div>
+    <div style="margin-bottom:12px;">
+      <a href="/" style="font-size:11px;color:var(--ink-soft);text-decoration:none;display:flex;align-items:center;justify-content:center;gap:4px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/></svg>
+        Back to property page
+      </a>
+    </div>
+
+    <div id="setup-form">
+      <p style="font-size:13px;color:var(--ink-soft);margin-bottom:16px;text-align:center;">First time here — create your admin login and your first PG.</p>
+      <label>Your Name</label>
+      <input id="setup-name" placeholder="e.g. Ramesh">
+      <label>Phone</label>
+      <input id="setup-phone" placeholder="9014761228">
+      <label>PG Name</label>
+      <input id="setup-pgname" placeholder="e.g. Sri Lakshmi Venkateshwara PG">
+      <label>Username</label>
+      <input id="setup-username" placeholder="admin">
+      <label>Password</label>
+      <input id="setup-password" type="password" placeholder="At least 6 characters">
+      <div class="auth-error" id="setup-error"></div>
+      <button class="btn btn-primary" onclick="doSetup()">Create Admin Account</button>
+    </div>
+
+    <div id="login-form" class="hidden">
+      <label>Username</label>
+      <input id="login-username" placeholder="Username" autocomplete="username">
+      <label>Password</label>
+      <input id="login-password" type="password" placeholder="Password" autocomplete="current-password">
+      <div class="auth-error" id="login-error"></div>
+      <button class="btn btn-primary" onclick="doLogin()">Log In</button>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app-shell" class="hidden">
+  <header class="app-header">
+    <svg class="arch-mark" viewBox="0 0 56 62" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M28 2L8 14V58H48V14L28 2Z" stroke="#C99A3E" stroke-width="2.5" fill="none"/>
+      <path d="M28 8L14 17V52H42V17L28 8Z" stroke="#FAF6EE" stroke-width="2" fill="none"/>
+      <circle cx="28" cy="28" r="7" fill="#C99A3E"/>
+      <rect x="22" y="40" width="12" height="12" fill="#FAF6EE"/>
+    </svg>
+    <div class="header-text" id="pg-switcher" onclick="openPgSwitcher()">
+      <div class="header-title" id="screen-title">Dashboard</div>
+      <div class="header-sub" id="pg-name-label">—</div>
+    </div>
+    <button class="header-action" onclick="doLogout()">Logout</button>
+  </header>
+
+  <main>
+    <div id="screen-dashboard" class="screen"></div>
+    <div id="screen-rooms" class="screen"></div>
+    <div id="screen-residents" class="screen"></div>
+    <div id="screen-rent" class="screen"></div>
+    <div id="screen-expenses" class="screen"></div>
+    <div id="screen-settings" class="screen"></div>
+  </main>
+
+  <button class="fab hidden" id="fab-btn">+</button>
+
+  <nav class="tabbar">
+    <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+      <span class="tab-label">Home</span>
+    </button>
+    <button class="tab-btn" data-tab="rooms" onclick="switchTab('rooms')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21V12h6v9"/></svg>
+      <span class="tab-label">Rooms</span>
+    </button>
+    <button class="tab-btn" data-tab="residents" onclick="switchTab('residents')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+      <span class="tab-label">Residents</span>
+    </button>
+    <button class="tab-btn" data-tab="rent" onclick="switchTab('rent')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5h4.5a1.8 1.8 0 010 3.6H9.8a1.8 1.8 0 000 3.6H15"/></svg>
+      <span class="tab-label">Rent</span>
+    </button>
+    <button class="tab-btn" data-tab="expenses" onclick="switchTab('expenses')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 12h18M3 17h18"/></svg>
+      <span class="tab-label">Expenses</span>
+    </button>
+    <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 008.27 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H2a2 2 0 010-4h.09A1.65 1.65 0 003.6 8.27a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h0A1.65 1.65 0 009 2.51V2a2 2 0 014 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H22a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      <span class="tab-label">Settings</span>
+    </button>
+  </nav>
+</div>
+
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal-sheet" id="modal-sheet"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/app.js"></script>
+<script src="/image-upload.js"></script>
+<script src="/pgs.js"></script>
+<script src="/dashboard.js"></script>
+<script src="/rooms.js"></script>
+<script src="/residents.js"></script>
+<script src="/rent.js"></script>
+<script src="/expenses.js"></script>
+<script src="/settings.js"></script>
+</body>
+</html>

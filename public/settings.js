@@ -89,11 +89,12 @@ function renderSettings(staffList, fixedCharges, corrections) {
     <div class="card">
       <div class="card-title">Your PGs</div>
       ${state.pgList.map(pg => `
-        <div class="list-row" onclick="openEditPgModal(${pg.id})" style="cursor:pointer;">
-          <div class="list-row-main">
+        <div class="list-row">
+          <div class="list-row-main" onclick="openEditPgModal(${pg.id})" style="cursor:pointer;">
             <div class="list-row-title">${escapeHtml(pg.name)}</div>
             <div class="list-row-sub">${pg.landlord_name ? 'Landlord: ' + escapeHtml(pg.landlord_name) : 'No landlord set'}</div>
           </div>
+          <button class="btn btn-gold btn-sm" onclick="openPropertyPageEditor(${pg.id})">Property page</button>
         </div>
       `).join('')}
       <button class="btn btn-outline btn-sm" style="margin-top:10px;width:100%;" onclick="openAddPgModal()">+ Add Another PG</button>
@@ -411,6 +412,168 @@ async function submitDismissCorrection(correctionId) {
     });
     closeModal();
     showToast('Flag dismissed.', 'success');
+    loadSettings();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+// ---- Property Page Editor ----
+
+const DEFAULT_AMENITIES = ['Wi-Fi','CCTV Security','Power backup','RO water','Geyser','Lift','Washing machine','Dining area','Working space','24/7 Security','Parking','Housekeeping'];
+const DEFAULT_RULES = [
+  'Rent to be paid on time — before the 5th of every month.',
+  'Vacating person must inform one month in advance. Advance will not be refunded without prior notice.',
+  'Strictly no smoking and no alcohol on the premises.',
+  'No outsiders allowed inside. Violation leads to immediate eviction.',
+  'Maintain cleanliness of your room and all common areas.',
+  'Rent and advance must be paid only to the management number. Payment to any other person is not acceptable.',
+  'All residents must follow house rules and cooperate for a peaceful environment.',
+  'Any damage to property or furniture is chargeable to the responsible resident.',
+  'Management decision is final in all matters.',
+];
+
+async function openPropertyPageEditor(pgId) {
+  const pg = state.pgList.find(p => p.id === pgId);
+  if (!pg) return;
+
+  let amenities = pg.amenities ? JSON.parse(pg.amenities) : DEFAULT_AMENITIES.slice(0, 8);
+  let rules = pg.house_rules ? JSON.parse(pg.house_rules) : DEFAULT_RULES;
+  let photos = pg.photos ? JSON.parse(pg.photos) : [];
+  const enabled = pg.property_page_enabled || 0;
+  const pageUrl = `${location.origin}/property.html?pg=${pgId}`;
+
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Property page — ${escapeHtml(pg.name)}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+
+    ${enabled ? `
+      <div style="background:var(--green-soft,#e6f4ec);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;">
+        <div style="font-weight:600;color:var(--green,#2F7A4F);margin-bottom:4px;">Page is live</div>
+        <div style="word-break:break-all;color:var(--ink-soft);font-size:11px;">${pageUrl}</div>
+        <button class="btn btn-sm" style="margin-top:6px;font-size:11px;" onclick="navigator.clipboard.writeText('${pageUrl}').then(()=>showToast('Link copied!','success'))">Copy link</button>
+        <button class="btn btn-sm" style="margin-top:6px;font-size:11px;margin-left:4px;" onclick="window.open('${pageUrl}','_blank')">Preview</button>
+      </div>` : `
+      <div style="background:var(--surface-1,#f5f5f3);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--ink-soft);">
+        Page is not published yet. Fill in details below and publish to get a shareable link.
+      </div>`}
+
+    <label>Tagline (short description)</label>
+    <input id="pp-tagline" placeholder="Premium co-living for students &amp; professionals" value="${escapeHtml(pg.tagline || '')}">
+
+    <label>About this PG</label>
+    <textarea id="pp-desc" rows="3" placeholder="Describe the property, location, neighbourhood…">${escapeHtml(pg.description || '')}</textarea>
+
+    <label style="margin-top:12px;">Pricing</label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px;">
+      <div>
+        <div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">Single — Monthly rent</div>
+        <input id="pp-s-rent" type="number" placeholder="24000" value="${pg.single_rent || ''}">
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">Single — Advance</div>
+        <input id="pp-s-adv" type="number" placeholder="20000" value="${pg.single_advance || ''}">
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">Double — Monthly rent</div>
+        <input id="pp-d-rent" type="number" placeholder="12000" value="${pg.double_rent || ''}">
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">Double — Advance</div>
+        <input id="pp-d-adv" type="number" placeholder="7000" value="${pg.double_advance || ''}">
+      </div>
+    </div>
+
+    <label>Amenities <span style="font-weight:400;color:var(--ink-soft);">(tick what applies)</span></label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:4px;" id="pp-amenity-grid">
+      ${DEFAULT_AMENITIES.map(a => `
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400;margin:0;padding:6px 0;cursor:pointer;">
+          <input type="checkbox" value="${a}" ${amenities.includes(a) ? 'checked' : ''} style="width:auto;margin:0;"> ${a}
+        </label>`).join('')}
+    </div>
+
+    <label>House rules <span style="font-weight:400;color:var(--ink-soft);">(edit or leave as default)</span></label>
+    <textarea id="pp-rules" rows="6" placeholder="One rule per line">${rules.join('\n')}</textarea>
+
+    <label>Photos <span style="font-weight:400;color:var(--ink-soft);">(upload up to 6)</span></label>
+    <input type="file" id="pp-photo-input" accept="image/*" multiple style="margin-bottom:6px;">
+    <div id="pp-photo-previews" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
+      ${photos.map((p,i) => `<div style="position:relative;"><img src="${p}" style="width:70px;height:55px;object-fit:cover;border-radius:6px;border:1px solid var(--border);"><button onclick="removePpPhoto(${i})" style="position:absolute;top:-4px;right:-4px;background:var(--red,#B23B3B);color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;line-height:1;">✕</button></div>`).join('')}
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button class="btn btn-primary" style="flex:1;" onclick="savePropertyPage(${pgId}, true)">
+        ${enabled ? 'Save changes' : 'Publish page'}
+      </button>
+      ${enabled ? `<button class="btn" onclick="savePropertyPage(${pgId}, false)" style="font-size:12px;">Unpublish</button>` : ''}
+    </div>
+  `);
+
+  // Wire photo upload
+  window._ppPhotos = photos.slice();
+  document.getElementById('pp-photo-input').addEventListener('change', async (e) => {
+    for (const file of Array.from(e.target.files)) {
+      if (window._ppPhotos.length >= 6) { showToast('Maximum 6 photos allowed', 'error'); break; }
+      const dataUrl = await compressImage(file, 800, 0.75);
+      window._ppPhotos.push(dataUrl);
+    }
+    refreshPpPreviews();
+  });
+}
+
+window.removePpPhoto = function(idx) {
+  window._ppPhotos.splice(idx, 1);
+  refreshPpPreviews();
+};
+
+function refreshPpPreviews() {
+  const el = document.getElementById('pp-photo-previews');
+  if (!el) return;
+  el.innerHTML = window._ppPhotos.map((p,i) =>
+    `<div style="position:relative;"><img src="${p}" style="width:70px;height:55px;object-fit:cover;border-radius:6px;border:1px solid var(--border);"><button onclick="removePpPhoto(${i})" style="position:absolute;top:-4px;right:-4px;background:#B23B3B;color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;line-height:1;">✕</button></div>`
+  ).join('');
+}
+
+async function savePropertyPage(pgId, publish) {
+  const tagline = document.getElementById('pp-tagline').value.trim();
+  const description = document.getElementById('pp-desc').value.trim();
+  const sRent = parseInt(document.getElementById('pp-s-rent').value, 10) || null;
+  const sAdv = parseInt(document.getElementById('pp-s-adv').value, 10) || null;
+  const dRent = parseInt(document.getElementById('pp-d-rent').value, 10) || null;
+  const dAdv = parseInt(document.getElementById('pp-d-adv').value, 10) || null;
+
+  const checkedAmenities = Array.from(
+    document.querySelectorAll('#pp-amenity-grid input[type=checkbox]:checked')
+  ).map(cb => cb.value);
+
+  const rulesText = document.getElementById('pp-rules').value.trim();
+  const rules = rulesText.split('\n').map(r => r.trim()).filter(Boolean);
+
+  try {
+    await api(`/pgs/${pgId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        tagline, description,
+        single_rent: sRent, single_advance: sAdv,
+        double_rent: dRent, double_advance: dAdv,
+        amenities: checkedAmenities,
+        house_rules: rules,
+        photos: window._ppPhotos || [],
+        property_page_enabled: publish ? 1 : 0,
+      }),
+    });
+    // Refresh pg list in state
+    state.pgList = await api('/pgs');
+    closeModal();
+    if (publish) {
+      const pageUrl = `${location.origin}/property.html?pg=${pgId}`;
+      showToast('Page published! Tap to copy link.', 'success');
+      navigator.clipboard.writeText(pageUrl).catch(() => {});
+    } else {
+      showToast('Page unpublished.', 'success');
+    }
     loadSettings();
   } catch (e) {
     showToast(e.message, 'error');
