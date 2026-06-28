@@ -69,10 +69,12 @@ async function openRoomDetail(roomId) {
     </div>
     <div class="card" style="margin-bottom:14px;">
       <div class="row-3">
-        <div class="stat-box"><div class="stat-num" style="font-size:16px;">${room.sharing_type === 'single' ? 'Single' : 'Double'}</div><div class="stat-label">Sharing</div></div>
+        <div class="stat-box"><div class="stat-num" style="font-size:16px;">${sharingLabel(room.sharing_type, room.capacity)}</div><div class="stat-label">Sharing</div></div>
         <div class="stat-box"><div class="stat-num" style="font-size:16px;">${fmtMoney(room.monthly_rent)}</div><div class="stat-label">Rent/bed</div></div>
         <div class="stat-box"><div class="stat-num" style="font-size:16px;">${fmtMoney(room.refundable_amount)}</div><div class="stat-label">Refundable</div></div>
       </div>
+      <button class="btn btn-outline btn-sm" style="margin-top:12px; width:100%;" onclick="openEditRoomModal(${room.id})">Edit Rent / Sharing Type</button>
+    </div>
     </div>
 
     <div class="card" style="margin-bottom:14px; ${room.needs_maintenance ? 'border-color:var(--red);' : ''}">
@@ -148,6 +150,73 @@ async function updateFacilityCondition(facilityId, condition) {
   }
 }
 
+function sharingLabel(sharingType, capacity) {
+  if (capacity === 1) return 'Single';
+  if (capacity === 2) return 'Double';
+  if (capacity === 3) return 'Triple';
+  return sharingType;
+}
+
+async function openEditRoomModal(roomId) {
+  let room;
+  try {
+    room = await api(`/rooms/${roomId}`);
+  } catch (e) {
+    showToast(e.message, 'error');
+    return;
+  }
+
+  const occupiedCount = room.beds ? room.beds.filter(b => b.occupied).length : null;
+
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Edit Room ${escapeHtml(room.room_number)}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <label>Sharing Type</label>
+    <select id="edit-rm-capacity">
+      <option value="1" ${room.capacity === 1 ? 'selected' : ''}>Single (1 person)</option>
+      <option value="2" ${room.capacity === 2 ? 'selected' : ''}>Double (2 people)</option>
+      <option value="3" ${room.capacity === 3 ? 'selected' : ''}>Triple (3 people)</option>
+    </select>
+    <p style="font-size:12px;color:var(--ink-soft);margin:-8px 0 14px;">
+      Changing this adds or removes beds. Reducing sharing only works if the beds being removed are empty.
+    </p>
+    <label>Monthly Rent (per bed)</label>
+    <input id="edit-rm-rent" type="number" value="${room.monthly_rent}">
+    <label>Advance Deposit</label>
+    <input id="edit-rm-advance" type="number" value="${room.advance_deposit}">
+    <label>Refundable Amount</label>
+    <input id="edit-rm-refund" type="number" value="${room.refundable_amount}">
+    <button class="btn btn-primary" onclick="submitEditRoom(${roomId})">Save Changes</button>
+  `);
+}
+
+async function submitEditRoom(roomId) {
+  const capacity = parseInt(document.getElementById('edit-rm-capacity').value, 10);
+  const monthly_rent = parseInt(document.getElementById('edit-rm-rent').value, 10);
+  const advance_deposit = parseInt(document.getElementById('edit-rm-advance').value, 10) || 0;
+  const refundable_amount = parseInt(document.getElementById('edit-rm-refund').value, 10) || 0;
+
+  if (!monthly_rent) {
+    showToast('Enter a valid rent amount.', 'error');
+    return;
+  }
+
+  try {
+    await api(`/rooms/${roomId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ capacity, monthly_rent, advance_deposit, refundable_amount }),
+    });
+    closeModal();
+    showToast('Room updated.', 'success');
+    state.rooms = await api('/rooms');
+    loadRooms();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
 function openAddRoomModal() {
   openModal(`
     <div class="modal-header">
@@ -162,6 +231,7 @@ function openAddRoomModal() {
     <select id="rm-sharing" onchange="onSharingChange()">
       <option value="double">Double Sharing</option>
       <option value="single">Single Sharing</option>
+      <option value="triple">Triple Sharing</option>
     </select>
     <div class="row-2">
       <div>
@@ -186,6 +256,10 @@ function onSharingChange() {
     document.getElementById('rm-rent').value = 24000;
     document.getElementById('rm-advance').value = 20000;
     document.getElementById('rm-refund').value = 14000;
+  } else if (sharing === 'triple') {
+    document.getElementById('rm-rent').value = 9000;
+    document.getElementById('rm-advance').value = 6000;
+    document.getElementById('rm-refund').value = 3000;
   } else {
     document.getElementById('rm-rent').value = 12000;
     document.getElementById('rm-advance').value = 7000;
@@ -206,12 +280,14 @@ async function submitAddRoom() {
     return;
   }
 
+  const capacityMap = { single: 1, double: 2, triple: 3 };
+
   try {
     await api('/rooms', {
       method: 'POST',
       body: JSON.stringify({
         floor, room_number, sharing_type,
-        capacity: sharing_type === 'single' ? 1 : 2,
+        capacity: capacityMap[sharing_type] || 2,
         monthly_rent, advance_deposit, refundable_amount,
       }),
     });

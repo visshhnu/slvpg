@@ -5,10 +5,23 @@ async function loadSettings() {
   el.innerHTML = `<div class="card"><div class="empty-state">Loading…</div></div>`;
 
   if (state.staff.role !== 'admin') {
+    let fixedCharges = [];
+    try { fixedCharges = await api('/fixed-charges'); } catch {}
     el.innerHTML = `
       <div class="card">
         <div class="card-title">Logged in as</div>
         <div class="list-row"><div class="list-row-main"><div class="list-row-title">${escapeHtml(state.staff.name)}</div><div class="list-row-sub">Staff account</div></div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Fixed Charges (reference only)</div>
+        ${fixedCharges.length === 0 ? `<div class="empty-state" style="padding:18px;">Nothing set yet.</div>` :
+          fixedCharges.map(f => `
+            <div class="list-row">
+              <div class="list-row-main"><div class="list-row-title" style="font-size:13.5px;">${escapeHtml(f.label)}</div></div>
+              <div class="list-row-amount">${fmtMoney(f.amount)}</div>
+            </div>
+          `).join('')
+        }
       </div>
       <div class="card">
         <div class="empty-state">
@@ -21,19 +34,56 @@ async function loadSettings() {
   }
 
   try {
-    const staffList = await api('/staff');
-    renderSettings(staffList);
+    const [staffList, fixedCharges, corrections] = await Promise.all([
+      api('/staff'), api('/fixed-charges'), api('/corrections?status=open'),
+    ]);
+    renderSettings(staffList, fixedCharges, corrections);
   } catch (e) {
-    el.innerHTML = `<div class="card"><div class="empty-state-title">Couldn't load staff list</div><div>${e.message}</div></div>`;
+    el.innerHTML = `<div class="card"><div class="empty-state-title">Couldn't load settings</div><div>${e.message}</div></div>`;
   }
 }
 
-function renderSettings(staffList) {
+function renderSettings(staffList, fixedCharges, corrections) {
   const el = document.getElementById('screen-settings');
   el.innerHTML = `
     <div class="card">
       <div class="card-title">Logged in as</div>
       <div class="list-row"><div class="list-row-main"><div class="list-row-title">${escapeHtml(state.staff.name)}</div><div class="list-row-sub">Admin · sees all PGs</div></div></div>
+    </div>
+
+    ${corrections.length > 0 ? `
+      <div class="card" style="border-color:var(--red);">
+        <div class="card-title" style="color:var(--red);">⚠ Flagged Corrections (${corrections.length})</div>
+        ${corrections.map(c => `
+          <div class="list-row">
+            <div class="list-row-main">
+              <div class="list-row-title" style="font-size:13.5px;">${c.record_type === 'payment' ? 'Payment' : 'Expense'}: ${c.record ? fmtMoney(c.record.amount) : '—'}${c.record && c.record.resident_name ? ' · ' + escapeHtml(c.record.resident_name) : ''}</div>
+              <div class="list-row-sub">"${escapeHtml(c.reason)}" — flagged by ${escapeHtml(c.raised_by)}</div>
+            </div>
+            <button class="btn btn-gold btn-sm" onclick="openResolveCorrectionModal(${c.id}, '${c.record_type}', ${c.record_id})">Review</button>
+          </div>
+        `).join('')}
+      </div>
+    ` : ''}
+
+    <div class="card">
+      <div class="card-title">Fixed Charges</div>
+      <p style="font-size:12px;color:var(--ink-soft);margin:-4px 0 10px;">A reference list of your standard recurring costs — not auto-billed, just so the current rate is always one tap away.</p>
+      ${fixedCharges.length === 0 ? `<div class="empty-state" style="padding:18px;">No fixed charges set yet.</div>` :
+        fixedCharges.map(f => `
+          <div class="list-row">
+            <div class="list-row-main" onclick="openEditFixedChargeModal(${f.id})" style="cursor:pointer;">
+              <div class="list-row-title">${escapeHtml(f.label)}</div>
+              ${f.notes ? `<div class="list-row-sub">${escapeHtml(f.notes)}</div>` : ''}
+            </div>
+            <div style="text-align:right;">
+              <div class="list-row-amount">${fmtMoney(f.amount)}</div>
+              <button class="btn btn-gold btn-sm" style="margin-top:4px;" onclick="quickLogFixedCharge(${f.id})">Log This Month</button>
+            </div>
+          </div>
+        `).join('')
+      }
+      <button class="btn btn-outline btn-sm" style="margin-top:10px;width:100%;" onclick="openAddFixedChargeModal()">+ Add Fixed Charge</button>
     </div>
 
     <div class="card">
@@ -156,6 +206,211 @@ async function submitEditPg(pgId) {
     updatePgLabel();
     closeModal();
     showToast('PG details updated.', 'success');
+    loadSettings();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+// ---- Fixed Charges ----
+
+function openAddFixedChargeModal() {
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Add Fixed Charge</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <label>Label</label>
+    <input id="fc-label" placeholder="e.g. Rent to Landlord, Wi-Fi Plan">
+    <label>Category</label>
+    <select id="fc-category">
+      ${EXPENSE_CATEGORIES.map(c => `<option value="${c.value}">${c.label}</option>`).join('')}
+    </select>
+    <label>Current Amount</label>
+    <input id="fc-amount" type="number" placeholder="0">
+    <label>Notes (optional)</label>
+    <input id="fc-notes" placeholder="e.g. plan details, due date">
+    <button class="btn btn-primary" onclick="submitAddFixedCharge()">Save</button>
+  `);
+}
+
+async function submitAddFixedCharge() {
+  const label = document.getElementById('fc-label').value.trim();
+  const category = document.getElementById('fc-category').value;
+  const amount = parseInt(document.getElementById('fc-amount').value, 10);
+  const notes = document.getElementById('fc-notes').value.trim();
+
+  if (!label || !amount) {
+    showToast('Label and amount are required.', 'error');
+    return;
+  }
+
+  try {
+    await api('/fixed-charges', {
+      method: 'POST',
+      body: JSON.stringify({ label, category, amount, notes }),
+    });
+    closeModal();
+    showToast('Fixed charge saved.', 'success');
+    loadSettings();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function openEditFixedChargeModal(id) {
+  let charges;
+  try {
+    charges = await api('/fixed-charges');
+  } catch (e) {
+    showToast(e.message, 'error');
+    return;
+  }
+  const fc = charges.find(c => c.id === id);
+  if (!fc) return;
+
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Edit Fixed Charge</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <label>Label</label>
+    <input id="edit-fc-label" value="${escapeHtml(fc.label)}">
+    <label>Category</label>
+    <select id="edit-fc-category">
+      ${EXPENSE_CATEGORIES.map(c => `<option value="${c.value}" ${c.value === fc.category ? 'selected' : ''}>${c.label}</option>`).join('')}
+    </select>
+    <label>Current Amount</label>
+    <input id="edit-fc-amount" type="number" value="${fc.amount}">
+    <label>Notes</label>
+    <input id="edit-fc-notes" value="${escapeHtml(fc.notes || '')}">
+    <button class="btn btn-primary" style="margin-bottom:10px;" onclick="submitEditFixedCharge(${id})">Save Changes</button>
+    <button class="btn btn-danger" onclick="submitDeleteFixedCharge(${id})">Delete</button>
+  `);
+}
+
+async function submitEditFixedCharge(id) {
+  const label = document.getElementById('edit-fc-label').value.trim();
+  const category = document.getElementById('edit-fc-category').value;
+  const amount = parseInt(document.getElementById('edit-fc-amount').value, 10);
+  const notes = document.getElementById('edit-fc-notes').value.trim();
+
+  try {
+    await api(`/fixed-charges/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ label, category, amount, notes }),
+    });
+    closeModal();
+    showToast('Updated.', 'success');
+    loadSettings();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function submitDeleteFixedCharge(id) {
+  try {
+    await api(`/fixed-charges/${id}`, { method: 'DELETE' });
+    closeModal();
+    showToast('Deleted.', 'success');
+    loadSettings();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+// Turns a fixed-charge reference rate into a real, dated expense entry with one tap.
+async function quickLogFixedCharge(id) {
+  let charges;
+  try {
+    charges = await api('/fixed-charges');
+  } catch (e) {
+    showToast(e.message, 'error');
+    return;
+  }
+  const fc = charges.find(c => c.id === id);
+  if (!fc) return;
+
+  try {
+    await api('/expenses', {
+      method: 'POST',
+      body: JSON.stringify({
+        category: fc.category,
+        amount: fc.amount,
+        description: fc.label,
+        expense_date: new Date().toISOString().slice(0, 10),
+      }),
+    });
+    showToast(`Logged ${fmtMoney(fc.amount)} for ${fc.label}.`, 'success');
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+// ---- Corrections review (admin) ----
+
+async function openResolveCorrectionModal(correctionId, recordType, recordId) {
+  let record;
+  try {
+    if (recordType === 'payment') {
+      const payments = await api('/payments?limit=200');
+      record = payments.find(p => p.id === recordId);
+    } else {
+      const exp = await api('/expenses');
+      record = exp.rows.find(e => e.id === recordId);
+    }
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Review Flag</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    ${record ? `
+      <div class="card" style="margin-bottom:14px;">
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Current Amount</div></div><div>${fmtMoney(record.amount)}</div></div>
+        ${record.resident_name ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Resident</div></div><div>${escapeHtml(record.resident_name)}</div></div>` : ''}
+        ${record.category ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Category</div></div><div>${escapeHtml(record.category)}</div></div>` : ''}
+      </div>
+      <label>Fix the Amount</label>
+      <input id="resolve-amount" type="number" value="${record.amount}">
+      <button class="btn btn-primary" style="margin-bottom:10px;" onclick="submitFixAndResolve(${correctionId}, '${recordType}', ${recordId})">Save Fix &amp; Resolve Flag</button>
+    ` : `<p style="color:var(--ink-soft);margin-bottom:14px;">Original record couldn't be loaded — you can still dismiss this flag below.</p>`}
+    <button class="btn btn-outline" onclick="submitDismissCorrection(${correctionId})">Dismiss Flag (no change needed)</button>
+  `);
+}
+
+async function submitFixAndResolve(correctionId, recordType, recordId) {
+  const amount = parseInt(document.getElementById('resolve-amount').value, 10);
+  if (!amount || amount <= 0) {
+    showToast('Enter a valid amount.', 'error');
+    return;
+  }
+  try {
+    const endpoint = recordType === 'payment' ? `/payments/${recordId}` : `/expenses/${recordId}`;
+    await api(endpoint, { method: 'PATCH', body: JSON.stringify({ amount }) });
+    await api(`/corrections/${correctionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'resolved', resolution_note: `Amount corrected to ${amount}` }),
+    });
+    closeModal();
+    showToast('Fixed and resolved.', 'success');
+    loadSettings();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function submitDismissCorrection(correctionId) {
+  try {
+    await api(`/corrections/${correctionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'dismissed' }),
+    });
+    closeModal();
+    showToast('Flag dismissed.', 'success');
     loadSettings();
   } catch (e) {
     showToast(e.message, 'error');

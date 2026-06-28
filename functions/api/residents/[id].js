@@ -58,7 +58,8 @@ export async function onRequestPatch({ request, env, params }) {
 
   const body = await request.json();
   const allowedFields = [
-    'name', 'photo_url', 'phone', 'alt_phone', 'aadhaar_number', 'id_proof_type', 'id_proof_number',
+    'name', 'photo_url', 'phone', 'alt_phone', 'aadhaar_number', 'aadhaar_photo_url',
+    'pan_number', 'pan_photo_url', 'id_proof_type', 'id_proof_number', 'id_proof_photo_url',
     'occupation', 'company_or_college', 'emergency_contact_name', 'emergency_contact_phone',
     'status', 'notice_date', 'planned_vacate_date', 'actual_vacate_date',
     'room_inspection_done', 'room_inspection_notes', 'deductions', 'deduction_reason',
@@ -102,6 +103,9 @@ export async function onRequestPatch({ request, env, params }) {
 export async function onRequestDelete({ request, env, params }) {
   const session = await requireAuth(request, env);
   if (!session) return unauthorized();
+  if (session.role !== 'admin') {
+    return jsonResponse({ error: 'Only an admin can permanently delete a resident record' }, 403);
+  }
 
   await env.DB.prepare('DELETE FROM residents WHERE id = ?').bind(params.id).run();
   return jsonResponse({ success: true });

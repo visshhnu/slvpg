@@ -1,6 +1,7 @@
 // ===== Residents screen =====
 
 let residentFilter = 'active';
+let pendingResidentDocs = {};
 
 async function loadResidents() {
   const el = document.getElementById('screen-residents');
@@ -105,6 +106,17 @@ function showResidentDetailModal(r) {
       <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Police Verification</div></div><div>${policeVerifBadge(r.police_verification_status)}</div></div>
     </div>
 
+    ${(r.aadhaar_photo_url || r.pan_photo_url || r.pan_number) ? `
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-title">Identity Documents</div>
+        ${r.aadhaar_photo_url ? `<p style="font-size:12px;color:var(--ink-soft);margin-bottom:4px;">Aadhaar</p><img src="${r.aadhaar_photo_url}" class="doc-preview" style="max-height:200px;">` : ''}
+        ${r.pan_number ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">PAN</div></div><div>${escapeHtml(r.pan_number)}</div></div>` : ''}
+        ${r.pan_photo_url ? `<p style="font-size:12px;color:var(--ink-soft);margin:8px 0 4px;">PAN Card</p><img src="${r.pan_photo_url}" class="doc-preview" style="max-height:200px;">` : ''}
+      </div>
+    ` : ''}
+
+    <button class="btn btn-outline" style="margin-bottom:10px;" onclick="openCheckinReceiptArea(${r.id})">Check-in Receipt</button>
+
     ${r.status === 'active' ? `
       <button class="btn btn-outline" style="margin-bottom:10px;" onclick="openVacateNoticeForm(${r.id})">Record Vacate Notice</button>
     ` : ''}
@@ -129,10 +141,170 @@ function showResidentDetailModal(r) {
             <div class="list-row-title">${fmtMoney(p.amount)} <span style="color:var(--ink-soft);font-weight:500;font-size:12px;">(${p.payment_type})</span></div>
             <div class="list-row-sub">${fmtDate(p.payment_date)} · ${p.payment_mode} · by ${escapeHtml(p.collected_by || '—')}</div>
           </div>
+          <button class="btn btn-outline btn-sm" onclick="openFlagCorrectionModal('payment', ${p.id})">Flag Issue</button>
         </div>
       `).join('')
     }
   `);
+}
+
+async function openCheckinReceiptArea(residentId) {
+  let receipts;
+  try {
+    receipts = await api(`/checkin-receipts?resident_id=${residentId}`);
+  } catch (e) {
+    showToast(e.message, 'error');
+    return;
+  }
+
+  if (receipts.length === 0) {
+    openModal(`
+      <div class="modal-header">
+        <div class="modal-title">Check-in Receipt</div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <p style="font-size:13px;color:var(--ink-soft);margin-bottom:16px;">
+        No receipt generated yet. This will create a permanent, locked record of the room's
+        condition, the agreed rent/deposit, and the house rules at this moment — it can never be edited afterward.
+      </p>
+      <button class="btn btn-primary" onclick="submitGenerateReceipt(${residentId})">Generate Check-in Receipt</button>
+    `);
+    return;
+  }
+
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Check-in Receipts</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    ${receipts.map(r => `
+      <div class="list-row" onclick="viewReceipt(${r.id})" style="cursor:pointer;">
+        <div class="list-row-main">
+          <div class="list-row-title">${escapeHtml(r.receipt_number)}</div>
+          <div class="list-row-sub">Generated ${fmtDate(r.created_at.slice(0,10))} by ${escapeHtml(r.generated_by)}</div>
+        </div>
+        <span class="badge badge-gray">View</span>
+      </div>
+    `).join('')}
+    <p style="font-size:12px;color:var(--ink-soft);text-align:center;margin-top:12px;">Need a new one (e.g. resident moved rooms)? Generating again keeps the old receipt on file too.</p>
+    <button class="btn btn-outline" style="margin-top:6px;" onclick="submitGenerateReceipt(${residentId})">Generate New Receipt</button>
+  `);
+}
+
+async function submitGenerateReceipt(residentId) {
+  try {
+    const result = await api('/checkin-receipts', {
+      method: 'POST',
+      body: JSON.stringify({ resident_id: residentId }),
+    });
+    showToast(`Receipt ${result.receipt_number} generated.`, 'success');
+    viewReceipt(result.id);
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function viewReceipt(receiptId) {
+  let r;
+  try {
+    r = await api(`/checkin-receipts/${receiptId}`);
+  } catch (e) {
+    showToast(e.message, 'error');
+    return;
+  }
+
+  const pg = state.pgList.find(p => p.id === r.pg_id);
+
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">${escapeHtml(r.receipt_number)}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div id="receipt-printable">
+      <div class="card" style="margin-bottom:12px;">
+        <div style="text-align:center;margin-bottom:10px;">
+          <div style="font-weight:800;font-size:16px;color:var(--navy);">${pg ? escapeHtml(pg.name) : ''}</div>
+          <div style="font-size:12px;color:var(--ink-soft);">Check-in Receipt · ${escapeHtml(r.receipt_number)}</div>
+        </div>
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Resident</div></div><div>${escapeHtml(r.resident_name)}</div></div>
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Phone</div></div><div>${escapeHtml(r.resident_phone || '—')}</div></div>
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Room</div></div><div>${r.room_floor} ${r.room_number}-${r.bed_label} (${sharingLabelFromType(r.sharing_type)})</div></div>
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Join Date</div></div><div>${fmtDate(r.join_date)}</div></div>
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Monthly Rent</div></div><div>${fmtMoney(r.monthly_rent)}</div></div>
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Advance Deposit (full)</div></div><div>${fmtMoney(r.advance_deposit)}</div></div>
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Refundable Amount</div></div><div>${fmtMoney(r.refundable_amount)}</div></div>
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Advance Paid at Check-in</div></div><div>${fmtMoney(r.advance_paid_now)}</div></div>
+      </div>
+
+      <div class="card-title">Room Condition at Check-in</div>
+      <div class="card" style="margin-bottom:12px;">
+        ${r.room_condition_snapshot.map(f => `
+          <div class="list-row">
+            <div class="list-row-main"><div class="list-row-title" style="font-size:13px;">${escapeHtml(f.item_name)} ×${f.quantity}</div></div>
+            <span class="badge ${f.condition === 'good' ? 'badge-green' : 'badge-red'}">${f.condition}</span>
+          </div>
+        `).join('')}
+      </div>
+
+      <div class="card-title">House Rules &amp; Terms</div>
+      <div class="card" style="margin-bottom:12px;">
+        <pre style="white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.6;margin:0;">${escapeHtml(r.terms_snapshot)}</pre>
+      </div>
+      <p style="font-size:11px;color:var(--ink-soft);text-align:center;">Generated ${fmtDate(r.created_at.slice(0,10))} by ${escapeHtml(r.generated_by)} · This receipt is permanent and cannot be edited.</p>
+    </div>
+    <button class="btn btn-primary" style="margin-top:14px;" onclick="printReceipt()">Print / Save as PDF</button>
+  `);
+}
+
+function sharingLabelFromType(type) {
+  return { single: 'Single Sharing', double: 'Double Sharing', triple: 'Triple Sharing' }[type] || type;
+}
+
+function printReceipt() {
+  const content = document.getElementById('receipt-printable').innerHTML;
+  const win = window.open('', '_blank');
+  win.document.write(`
+    <html><head><title>Check-in Receipt</title>
+    <style>body{font-family:-apple-system,sans-serif;padding:24px;color:#262321;} .list-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #eee;} .badge{padding:2px 8px;border-radius:10px;font-size:11px;background:#eee;} .card{margin-bottom:16px;} pre{white-space:pre-wrap;font-size:12px;}</style>
+    </head><body>${content}</body></html>
+  `);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 300);
+}
+
+// ---- Flag a correction (staff-facing, on payments/expenses) ----
+function openFlagCorrectionModal(recordType, recordId) {
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Flag a Correction</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <p style="font-size:13px;color:var(--ink-soft);margin-bottom:14px;">
+      You can't delete this directly — describe what's wrong and the admin will review and fix it.
+    </p>
+    <label>What's wrong?</label>
+    <textarea id="flag-reason" rows="3" placeholder="e.g. Typed 120000 instead of 12000"></textarea>
+    <button class="btn btn-primary" onclick="submitFlagCorrection('${recordType}', ${recordId})">Submit Flag</button>
+  `);
+}
+
+async function submitFlagCorrection(recordType, recordId) {
+  const reason = document.getElementById('flag-reason').value.trim();
+  if (!reason) {
+    showToast('Please describe the issue.', 'error');
+    return;
+  }
+  try {
+    await api('/corrections', {
+      method: 'POST',
+      body: JSON.stringify({ record_type: recordType, record_id: recordId, reason }),
+    });
+    closeModal();
+    showToast('Flagged for admin review.', 'success');
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
 }
 
 function openVacateNoticeForm(residentId) {
@@ -220,6 +392,7 @@ async function openAddResidentModal(preselectedBedId) {
   });
 
   const today = new Date().toISOString().slice(0, 10);
+  pendingResidentDocs = { aadhaar_photo_url: null, pan_photo_url: null, id_proof_photo_url: null };
 
   openModal(`
     <div class="modal-header">
@@ -230,8 +403,6 @@ async function openAddResidentModal(preselectedBedId) {
     <input id="res-name" placeholder="Resident's name">
     <label>Phone</label>
     <input id="res-phone" placeholder="10-digit phone number">
-    <label>Aadhaar Number (optional)</label>
-    <input id="res-aadhaar" placeholder="XXXX XXXX XXXX">
     <label>Bed</label>
     <select id="res-bed">
       <option value="">Select a vacant bed</option>
@@ -252,6 +423,22 @@ async function openAddResidentModal(preselectedBedId) {
     <input id="res-emergency-name" placeholder="Optional">
     <label>Emergency Contact Phone</label>
     <input id="res-emergency-phone" placeholder="Optional">
+
+    <div class="card" style="margin:14px 0;">
+      <div class="card-title">Identity Documents</div>
+      <label>Aadhaar Number</label>
+      <input id="res-aadhaar" placeholder="XXXX XXXX XXXX">
+      <label>Aadhaar Photo</label>
+      <input type="file" id="res-aadhaar-file" accept="image/*" capture="environment">
+      <img id="res-aadhaar-preview" class="hidden doc-preview">
+
+      <label style="margin-top:10px;">PAN Number (optional)</label>
+      <input id="res-pan" placeholder="ABCDE1234F">
+      <label>PAN Photo</label>
+      <input type="file" id="res-pan-file" accept="image/*" capture="environment">
+      <img id="res-pan-preview" class="hidden doc-preview">
+    </div>
+
     <label>Police Verification</label>
     <select id="res-police">
       <option value="pending">Pending</option>
@@ -263,12 +450,16 @@ async function openAddResidentModal(preselectedBedId) {
     </label>
     <button class="btn btn-primary" style="margin-top:14px;" onclick="submitAddResident()">Save Resident</button>
   `);
+
+  wireImageUpload('res-aadhaar-file', 'res-aadhaar-preview', (dataUrl) => { pendingResidentDocs.aadhaar_photo_url = dataUrl; });
+  wireImageUpload('res-pan-file', 'res-pan-preview', (dataUrl) => { pendingResidentDocs.pan_photo_url = dataUrl; });
 }
 
 async function submitAddResident() {
   const name = document.getElementById('res-name').value.trim();
   const phone = document.getElementById('res-phone').value.trim();
   const aadhaar_number = document.getElementById('res-aadhaar').value.trim();
+  const pan_number = document.getElementById('res-pan').value.trim();
   const bed_id = parseInt(document.getElementById('res-bed').value, 10);
   const join_date = document.getElementById('res-join').value;
   const advance_paid = parseInt(document.getElementById('res-advance').value, 10) || 0;
@@ -285,16 +476,18 @@ async function submitAddResident() {
   }
 
   try {
-    await api('/residents', {
+    const result = await api('/residents', {
       method: 'POST',
       body: JSON.stringify({
-        name, phone, aadhaar_number, bed_id, join_date, advance_paid, occupation,
+        name, phone, aadhaar_number, pan_number, bed_id, join_date, advance_paid, occupation,
         company_or_college, emergency_contact_name, emergency_contact_phone,
         police_verification_status, agreement_signed,
+        aadhaar_photo_url: pendingResidentDocs.aadhaar_photo_url,
+        pan_photo_url: pendingResidentDocs.pan_photo_url,
       }),
     });
     closeModal();
-    showToast('Resident added.', 'success');
+    showToast('Resident added. You can generate their check-in receipt from their profile.', 'success');
     loadResidents();
     state.rooms = await api('/rooms'); // refresh occupancy cache
   } catch (e) {

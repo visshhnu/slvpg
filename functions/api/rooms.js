@@ -82,9 +82,9 @@ export async function onRequestPost({ request, env }) {
   ).bind(pgId, floor, room_number, sharing_type, capacity, monthly_rent, advance_deposit || 0, refundable_amount || 0, notes || null).run();
 
   const roomId = result.meta.last_row_id;
-  await env.DB.prepare("INSERT INTO beds (room_id, bed_label) VALUES (?, 'A')").bind(roomId).run();
-  if (capacity === 2) {
-    await env.DB.prepare("INSERT INTO beds (room_id, bed_label) VALUES (?, 'B')").bind(roomId).run();
+  const bedLabels = ['A', 'B', 'C'];
+  for (let i = 0; i < capacity; i++) {
+    await env.DB.prepare("INSERT INTO beds (room_id, bed_label) VALUES (?, ?)").bind(roomId, bedLabels[i]).run();
   }
 
   // Standard facility checklist, same as the seed data

@@ -4,6 +4,9 @@ import { requireAuth, jsonResponse, unauthorized } from '../../_auth.js';
 export async function onRequestPatch({ request, env, params }) {
   const session = await requireAuth(request, env);
   if (!session) return unauthorized();
+  if (session.role !== 'admin') {
+    return jsonResponse({ error: 'Only an admin can edit an expense. Use "Flag a Correction" instead.' }, 403);
+  }
 
   const body = await request.json();
   const allowed = ['category', 'description', 'amount', 'expense_date', 'paid_by', 'receipt_note'];
@@ -25,6 +28,9 @@ export async function onRequestPatch({ request, env, params }) {
 export async function onRequestDelete({ request, env, params }) {
   const session = await requireAuth(request, env);
   if (!session) return unauthorized();
+  if (session.role !== 'admin') {
+    return jsonResponse({ error: 'Only an admin can delete an expense. Use "Flag a Correction" instead.' }, 403);
+  }
   await env.DB.prepare('DELETE FROM expenses WHERE id = ?').bind(params.id).run();
   return jsonResponse({ success: true });
 }

@@ -143,6 +143,24 @@ async function submitAddExpense() {
 function openEditExpenseModal(expenseId) {
   const e = state.expensesData.rows.find(x => x.id === expenseId);
   if (!e) return;
+
+  if (state.staff.role !== 'admin') {
+    openModal(`
+      <div class="modal-header">
+        <div class="modal-title">${CATEGORY_LABEL_MAP[e.category] || e.category}</div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="card" style="margin-bottom:14px;">
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Amount</div></div><div>${fmtMoney(e.amount)}</div></div>
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Date</div></div><div>${fmtDate(e.expense_date)}</div></div>
+        ${e.description ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Note</div></div><div>${escapeHtml(e.description)}</div></div>` : ''}
+      </div>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:12px;">Spotted a mistake? Flag it and the admin will review and fix it.</p>
+      <button class="btn btn-outline" onclick="openFlagCorrectionModal('expense', ${expenseId})">Flag a Correction</button>
+    `);
+    return;
+  }
+
   openModal(`
     <div class="modal-header">
       <div class="modal-title">Edit Expense</div>
