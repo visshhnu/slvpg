@@ -9,11 +9,16 @@ export async function onRequestGet({ request, env }) {
   const pgId = resolvePgId(session, url);
   if (!pgId) return jsonResponse({ error: 'pg_id is required' }, 400);
 
-  const { results } = await env.DB.prepare(
-    'SELECT * FROM fixed_charges WHERE pg_id = ? ORDER BY label'
-  ).bind(pgId).all();
-
-  return jsonResponse(results);
+  try {
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM fixed_charges WHERE pg_id = ? ORDER BY label'
+    ).bind(pgId).all();
+    return jsonResponse(results);
+  } catch (e) {
+    // Migration 0003 not yet applied - return empty list gracefully
+    if (String(e).includes('no such table')) return jsonResponse([]);
+    throw e;
+  }
 }
 
 export async function onRequestPost({ request, env }) {
@@ -37,6 +42,9 @@ export async function onRequestPost({ request, env }) {
   } catch (e) {
     if (String(e).includes('UNIQUE')) {
       return jsonResponse({ error: 'A fixed charge with that label already exists for this PG' }, 409);
+    }
+    if (String(e).includes('no such table')) {
+      return jsonResponse({ error: 'Database migration 0003 not yet applied. Run: wrangler d1 migrations apply svpg-manager-db --remote' }, 503);
     }
     throw e;
   }

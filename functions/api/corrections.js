@@ -19,7 +19,14 @@ export async function onRequestGet({ request, env }) {
   }
   query += ' ORDER BY created_at DESC';
 
-  const { results } = await env.DB.prepare(query).bind(...binds).all();
+  let results;
+  try {
+    const res = await env.DB.prepare(query).bind(...binds).all();
+    results = res.results;
+  } catch (e) {
+    if (String(e).includes('no such table')) return jsonResponse([]);
+    throw e;
+  }
 
   // Enrich each flag with a snapshot of the record it points to, so the admin
   // doesn't have to cross-reference manually.

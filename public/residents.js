@@ -429,13 +429,13 @@ async function openAddResidentModal(preselectedBedId) {
       <label>Aadhaar Number</label>
       <input id="res-aadhaar" placeholder="XXXX XXXX XXXX">
       <label>Aadhaar Photo</label>
-      <input type="file" id="res-aadhaar-file" accept="image/*" capture="environment">
+      <input type="file" id="res-aadhaar-file" accept="image/*">
       <img id="res-aadhaar-preview" class="hidden doc-preview">
 
       <label style="margin-top:10px;">PAN Number (optional)</label>
       <input id="res-pan" placeholder="ABCDE1234F">
       <label>PAN Photo</label>
-      <input type="file" id="res-pan-file" accept="image/*" capture="environment">
+      <input type="file" id="res-pan-file" accept="image/*">
       <img id="res-pan-preview" class="hidden doc-preview">
     </div>
 

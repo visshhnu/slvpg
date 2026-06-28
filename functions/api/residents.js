@@ -65,23 +65,49 @@ export async function onRequestPost({ request, env }) {
     return jsonResponse({ error: 'That bed is already occupied' }, 409);
   }
 
-  const result = await env.DB.prepare(`
-    INSERT INTO residents (
-      pg_id, name, photo_url, phone, alt_phone, aadhaar_number, aadhaar_photo_url,
-      pan_number, pan_photo_url, id_proof_type, id_proof_number, id_proof_photo_url,
-      occupation, company_or_college, emergency_contact_name, emergency_contact_phone,
-      bed_id, join_date, advance_paid, agreement_signed, police_verification_status, status, notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
-  `).bind(
-    pgId, name, photo_url || null, phone, alt_phone || null,
-    aadhaar_number || null, aadhaar_photo_url || null,
-    pan_number || null, pan_photo_url || null,
-    id_proof_type || null, id_proof_number || null, id_proof_photo_url || null,
-    occupation || null, company_or_college || null,
-    emergency_contact_name || null, emergency_contact_phone || null,
-    bed_id, join_date, advance_paid || 0,
-    agreement_signed ? 1 : 0, police_verification_status || 'pending', notes || null
-  ).run();
+  let result;
+  try {
+    // Full insert including photo columns added in migration 0004
+    result = await env.DB.prepare(`
+      INSERT INTO residents (
+        pg_id, name, photo_url, phone, alt_phone, aadhaar_number, aadhaar_photo_url,
+        pan_number, pan_photo_url, id_proof_type, id_proof_number, id_proof_photo_url,
+        occupation, company_or_college, emergency_contact_name, emergency_contact_phone,
+        bed_id, join_date, advance_paid, agreement_signed, police_verification_status, status, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+    `).bind(
+      pgId, name, photo_url || null, phone, alt_phone || null,
+      aadhaar_number || null, aadhaar_photo_url || null,
+      pan_number || null, pan_photo_url || null,
+      id_proof_type || null, id_proof_number || null, id_proof_photo_url || null,
+      occupation || null, company_or_college || null,
+      emergency_contact_name || null, emergency_contact_phone || null,
+      bed_id, join_date, advance_paid || 0,
+      agreement_signed ? 1 : 0, police_verification_status || 'pending', notes || null
+    ).run();
+  } catch (e) {
+    // Fallback: migration 0004 not yet applied — insert without photo columns
+    if (String(e).includes('no such column') || String(e).includes('table residents has no column')) {
+      result = await env.DB.prepare(`
+        INSERT INTO residents (
+          pg_id, name, photo_url, phone, alt_phone, aadhaar_number,
+          id_proof_type, id_proof_number,
+          occupation, company_or_college, emergency_contact_name, emergency_contact_phone,
+          bed_id, join_date, advance_paid, agreement_signed, police_verification_status, status, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+      `).bind(
+        pgId, name, photo_url || null, phone, alt_phone || null,
+        aadhaar_number || null,
+        id_proof_type || null, id_proof_number || null,
+        occupation || null, company_or_college || null,
+        emergency_contact_name || null, emergency_contact_phone || null,
+        bed_id, join_date, advance_paid || 0,
+        agreement_signed ? 1 : 0, police_verification_status || 'pending', notes || null
+      ).run();
+    } else {
+      throw e;
+    }
+  }
 
   return jsonResponse({ success: true, id: result.meta.last_row_id });
 }
