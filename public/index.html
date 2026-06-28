@@ -171,7 +171,7 @@ textarea{resize:none;height:80px}
       <div class="price-type">Double sharing</div>
       <div class="price-amt">₹12,000<span>/mo</span></div>
       <div class="price-adv">Advance deposit: ₹10,000</div>
-      <div class="price-ref">Refundable: ₹10,000</div>
+      <div class="price-ref">Refundable: ₹7,000 · Maintenance: ₹3,000</div>
       <span class="avail-pill avail-y" id="avail-double">Checking availability…</span>
     </div>
   </div>
@@ -199,28 +199,76 @@ textarea{resize:none;height:80px}
   </div>
 </div>
 
-<!-- HOUSE RULES -->
+<!-- HOUSE RULES — compact grid design -->
 <div class="section">
   <div class="sec-title">House rules &amp; guidelines</div>
-  <div class="rules-card">
-    <div class="rule-row"><div class="rule-n">1</div><div>Rent to be paid on time — <span class="rule-highlight">before the 5th of every month</span>. Late payment may attract a fine.</div></div>
-    <div class="rule-row"><div class="rule-n">2</div><div>Vacating person must inform <span class="rule-highlight">one month in advance</span>. Advance will <span class="rule-highlight">not be refunded</span> without prior notice.</div></div>
-    <div class="rule-row"><div class="rule-n">3</div><div>Strictly <span class="rule-highlight">no smoking and no alcohol</span> on the premises.</div></div>
-    <div class="rule-row"><div class="rule-n">4</div><div><span class="rule-highlight">No outsiders allowed</span> inside. Violation leads to immediate eviction without refund.</div></div>
-    <div class="rule-row"><div class="rule-n">5</div><div>Maintain cleanliness of your room and all common areas. Premises should be clean and neat at all times.</div></div>
-    <div class="rule-row"><div class="rule-n">6</div><div>Rent and advance must be paid <span class="rule-highlight">only to the management number</span>. Payment to any other person is not acceptable.</div></div>
-    <div class="rule-row"><div class="rule-n">7</div><div>All residents must follow the rules and cooperate for a peaceful living environment.</div></div>
-    <div class="rule-row"><div class="rule-n">8</div><div>Any <span class="rule-highlight">damage to property or furniture</span> is chargeable to the respective resident.</div></div>
-    <div class="rule-row"><div class="rule-n">9</div><div>Management decision is final in all matters.</div></div>
-    <div class="rule-row"><div class="rule-n">10</div><div><span class="rule-highlight">No cooking inside rooms</span> — use common kitchen/dining area only. Violation leads to immediate eviction.</div></div>
-    <div class="rule-row"><div class="rule-n">11</div><div><span class="rule-highlight">No electric heaters, irons, or high-wattage appliances</span> in rooms. Fire risk and circuit damage will be charged to the resident.</div></div>
-    <div class="rule-row"><div class="rule-n">12</div><div>Common areas (bathrooms, kitchen, washing area) must be <span class="rule-highlight">cleaned after every use</span>. Leave it better than you found it.</div></div>
-    <div class="rule-row"><div class="rule-n">13</div><div><span class="rule-highlight">No subletting</span> — your bed or room cannot be given to another person temporarily or permanently under any circumstances.</div></div>
-    <div class="rule-row"><div class="rule-n">14</div><div>Residents must <span class="rule-highlight">inform management immediately</span> of any infectious illness for the safety and health of all co-residents.</div></div>
-    <div class="rule-row"><div class="rule-n">15</div><div><span class="rule-highlight">No food stored in rooms for more than 24 hours</span> — strictly for pest control and hygiene. Use the common dining area for all meals.</div></div>
-    <div class="rule-row"><div class="rule-n">16</div><div><span class="rule-highlight">Keys and access cards must not be duplicated or shared</span> with anyone including family. Lost keys will be charged to the resident.</div></div>
-    <div class="rule-row"><div class="rule-n">17</div><div>Any room damage will be assessed <span class="rule-highlight">within 48 hours of vacating</span>. Disputes or claims after 7 days will not be entertained.</div></div>
-    <div class="rule-row"><div class="rule-n">18</div><div><span class="rule-highlight">Management is not responsible for personal belongings</span> — phones, watches, laptops, cash, or any valuables. Keep your belongings in the provided lockers and always lock your room when you leave. This is entirely your responsibility.</div></div>
+  <div style="background:var(--card);border-radius:14px;border:1px solid var(--border);overflow:hidden;margin-bottom:8px;">
+    <div style="background:var(--navy);padding:12px 16px;display:flex;align-items:center;gap:8px;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#C99A3E" stroke-width="2" width="16" height="16"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>
+      <span style="color:#fff;font-size:12px;font-weight:600;letter-spacing:.04em;">All residents must read, agree to, and follow these rules.</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;">
+      <div style="padding:11px 14px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;">
+        <span style="background:var(--navy);color:#fff;border-radius:50%;min-width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">1</span>
+        <span style="font-size:12px;line-height:1.5;"><strong>Rent by 5th</strong><br>Late payment attracts a fine.</span>
+      </div>
+      <div style="padding:11px 14px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;">
+        <span style="background:var(--navy);color:#fff;border-radius:50%;min-width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">2</span>
+        <span style="font-size:12px;line-height:1.5;"><strong>1 month notice</strong><br>No notice = no advance refund.</span>
+      </div>
+      <div style="padding:11px 14px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;">
+        <span style="background:var(--navy);color:#fff;border-radius:50%;min-width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">3</span>
+        <span style="font-size:12px;line-height:1.5;"><strong>No smoking / alcohol</strong><br>Strictly prohibited on premises.</span>
+      </div>
+      <div style="padding:11px 14px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;">
+        <span style="background:var(--navy);color:#fff;border-radius:50%;min-width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">4</span>
+        <span style="font-size:12px;line-height:1.5;"><strong>No outsiders</strong><br>Violation = immediate eviction.</span>
+      </div>
+      <div style="padding:11px 14px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;">
+        <span style="background:var(--navy);color:#fff;border-radius:50%;min-width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">5</span>
+        <span style="font-size:12px;line-height:1.5;"><strong>Cleanliness</strong><br>Rooms &amp; common areas must be kept clean.</span>
+      </div>
+      <div style="padding:11px 14px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;">
+        <span style="background:var(--navy);color:#fff;border-radius:50%;min-width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">6</span>
+        <span style="font-size:12px;line-height:1.5;"><strong>Pay to management only</strong><br>Payment to others not accepted.</span>
+      </div>
+      <div style="padding:11px 14px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;">
+        <span style="background:var(--navy);color:#fff;border-radius:50%;min-width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">7</span>
+        <span style="font-size:12px;line-height:1.5;"><strong>No cooking in rooms</strong><br>Use common kitchen only.</span>
+      </div>
+      <div style="padding:11px 14px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;">
+        <span style="background:var(--navy);color:#fff;border-radius:50%;min-width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">8</span>
+        <span style="font-size:12px;line-height:1.5;"><strong>No high-wattage appliances</strong><br>Heaters, irons — strictly not allowed.</span>
+      </div>
+      <div style="padding:11px 14px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;">
+        <span style="background:var(--navy);color:#fff;border-radius:50%;min-width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">9</span>
+        <span style="font-size:12px;line-height:1.5;"><strong>No subletting</strong><br>Your bed/room cannot be shared or lent.</span>
+      </div>
+      <div style="padding:11px 14px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;">
+        <span style="background:var(--navy);color:#fff;border-radius:50%;min-width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">10</span>
+        <span style="font-size:12px;line-height:1.5;"><strong>Property damage</strong><br>Chargeable to the resident.</span>
+      </div>
+      <div style="padding:11px 14px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;">
+        <span style="background:var(--navy);color:#fff;border-radius:50%;min-width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">11</span>
+        <span style="font-size:12px;line-height:1.5;"><strong>Illness reporting</strong><br>Inform management of any infectious illness immediately.</span>
+      </div>
+      <div style="padding:11px 14px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;">
+        <span style="background:var(--navy);color:#fff;border-radius:50%;min-width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">12</span>
+        <span style="font-size:12px;line-height:1.5;"><strong>No food stored overnight</strong><br>Use dining area. Pest control policy.</span>
+      </div>
+      <div style="padding:11px 14px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;">
+        <span style="background:var(--navy);color:#fff;border-radius:50%;min-width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">13</span>
+        <span style="font-size:12px;line-height:1.5;"><strong>No key duplication</strong><br>Lost keys charged to resident.</span>
+      </div>
+      <div style="padding:11px 14px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;">
+        <span style="background:var(--navy);color:#fff;border-radius:50%;min-width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">14</span>
+        <span style="font-size:12px;line-height:1.5;"><strong>Damage assessed in 48 hrs</strong><br>Claims after 7 days not entertained.</span>
+      </div>
+      <div style="padding:11px 14px;border-right:1px solid var(--border);display:flex;gap:8px;align-items:flex-start;grid-column:1/-1;">
+        <span style="background:var(--red);color:#fff;border-radius:50%;min-width:18px;height:18px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;flex-shrink:0;">15</span>
+        <span style="font-size:12px;line-height:1.5;"><strong>Personal belongings — management not responsible.</strong> Phones, laptops, cash, watches, or any valuables are entirely your responsibility. Use the provided locker and always lock your room. Management cannot help with lost personal items.</span>
+      </div>
+    </div>
   </div>
 </div>
 

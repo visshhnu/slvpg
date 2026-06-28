@@ -104,19 +104,44 @@ async function openRoomDetail(roomId) {
     `).join('')}
 
     <div class="card-title" style="margin-top:6px;">Room Facilities Checklist</div>
-    <div class="card">
-      ${fullDetail.facilities.map(f => `
-        <div class="list-row">
-          <div class="list-row-main">
-            <div class="list-row-title">${escapeHtml(f.item_name)} <span style="color:var(--ink-soft);font-weight:500;">×${f.quantity}</span></div>
+    <div style="background:var(--card);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;">
+      <div style="display:grid;grid-template-columns:1fr auto auto;background:var(--cream);padding:8px 12px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:.05em;color:var(--ink-soft);">
+        <span>ITEM</span><span style="text-align:center;padding:0 8px;">QTY</span><span style="text-align:right;min-width:120px;">CONDITION</span>
+      </div>
+      ${fullDetail.facilities.map(f => {
+        const condColor = f.condition === 'good' ? 'var(--green)' : f.condition === 'damaged' ? 'var(--amber)' : f.condition === 'missing' ? 'var(--red)' : f.condition === 'not_available' ? 'var(--ink-soft)' : 'var(--ink-soft)';
+        return `
+        <div style="display:grid;grid-template-columns:1fr auto auto;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);" id="frow-${f.id}">
+          <div>
+            <div style="font-size:13px;font-weight:500;">${escapeHtml(f.item_name)}</div>
+            ${f.notes ? `<div style="font-size:11px;color:var(--ink-soft);margin-top:2px;">${escapeHtml(f.notes)}</div>` : ''}
           </div>
-          <select onchange="updateFacilityCondition(${f.id}, this.value)" style="width:auto;margin:0;padding:6px 8px;font-size:12px;">
-            <option value="good" ${f.condition === 'good' ? 'selected' : ''}>Good</option>
-            <option value="damaged" ${f.condition === 'damaged' ? 'selected' : ''}>Damaged</option>
-            <option value="missing" ${f.condition === 'missing' ? 'selected' : ''}>Missing</option>
-          </select>
+          <div style="padding:0 8px;">
+            <input type="number" min="0" max="10" value="${f.quantity}"
+              style="width:44px;text-align:center;padding:5px 4px;font-size:13px;margin:0;border-radius:6px;"
+              onchange="updateFacilityField(${f.id}, 'quantity', parseInt(this.value)||0)"
+              title="Tap to change quantity">
+          </div>
+          <div style="min-width:120px;text-align:right;">
+            <select onchange="updateFacilityField(${f.id}, 'condition', this.value)"
+              style="width:auto;margin:0;padding:5px 6px;font-size:12px;border-radius:6px;font-weight:500;color:${condColor};">
+              <option value="good"         ${f.condition==='good'||!f.condition?'selected':''}>Good</option>
+              <option value="damaged"      ${f.condition==='damaged'?'selected':''}>Damaged</option>
+              <option value="missing"      ${f.condition==='missing'?'selected':''}>Missing</option>
+              <option value="not_available"${f.condition==='not_available'?'selected':''}>Not available</option>
+            </select>
+          </div>
         </div>
-      `).join('')}
+        <div style="padding:4px 12px 8px;border-bottom:1px solid var(--border);">
+          <input placeholder="Add note (e.g. torn, needs replacement)…"
+            value="${escapeHtml(f.notes||'')}"
+            style="font-size:11px;padding:5px 8px;border-radius:6px;color:var(--ink-soft);width:100%;margin:0;"
+            onchange="updateFacilityField(${f.id}, 'notes', this.value)">
+        </div>`;
+      }).join('')}
+      <div style="padding:10px 12px;">
+        <button class="btn btn-outline btn-sm" style="width:100%;font-size:12px;" onclick="openAddFacilityItem(${room.id})">+ Add item</button>
+      </div>
     </div>
   `);
 }
@@ -141,13 +166,62 @@ async function saveMaintNote(roomId, note) {
   }
 }
 
-async function updateFacilityCondition(facilityId, condition) {
+async function updateFacilityField(facilityId, field, value) {
   try {
-    await api(`/room-facilities/${facilityId}`, { method: 'PATCH', body: JSON.stringify({ condition }) });
-    showToast('Updated.', 'success');
-  } catch (e) {
+    await api(`/room-facilities/${facilityId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ [field]: value }),
+    });
+    // Subtle feedback — no toast for every keystroke, just color update on condition
+    if (field === 'condition') {
+      const colors = { good: 'var(--green)', damaged: 'var(--amber)', missing: 'var(--red)', not_available: 'var(--ink-soft)' };
+      const sel = document.querySelector(`#frow-${facilityId} select`);
+      if (sel) sel.style.color = colors[value] || 'var(--ink)';
+      showToast('Updated.', 'success');
+    }
+  } catch(e) {
     showToast(e.message, 'error');
   }
+}
+
+async function openAddFacilityItem(roomId) {
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Add facility item</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <label>Item name</label>
+    <input id="new-fac-name" placeholder="e.g. Mirror, Curtain, Table lamp">
+    <label>Quantity</label>
+    <input id="new-fac-qty" type="number" value="1" min="1" max="10">
+    <label>Condition</label>
+    <select id="new-fac-cond">
+      <option value="good">Good</option>
+      <option value="damaged">Damaged</option>
+      <option value="missing">Missing</option>
+      <option value="not_available">Not available</option>
+    </select>
+    <label>Notes (optional)</label>
+    <input id="new-fac-notes" placeholder="Any remarks">
+    <button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="submitAddFacilityItem(${roomId})">Add item</button>
+  `);
+}
+
+async function submitAddFacilityItem(roomId) {
+  const name = document.getElementById('new-fac-name').value.trim();
+  const qty = parseInt(document.getElementById('new-fac-qty').value, 10) || 1;
+  const condition = document.getElementById('new-fac-cond').value;
+  const notes = document.getElementById('new-fac-notes').value.trim();
+  if (!name) { showToast('Item name is required.', 'error'); return; }
+  try {
+    await api(`/room-facilities/${roomId}`, {
+      method: 'POST',
+      body: JSON.stringify({ item_name: name, quantity: qty, condition, notes: notes || null }),
+    });
+    closeModal();
+    showToast('Item added.', 'success');
+    openRoomDetail(roomId);
+  } catch(e) { showToast(e.message, 'error'); }
 }
 
 function sharingLabel(sharingType, capacity) {
