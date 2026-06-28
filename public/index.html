@@ -97,8 +97,8 @@ textarea{resize:none;height:80px}
     <label>Room type</label>
     <select id="e-type">
       <option value="">Select preference</option>
-      <option value="single">Single sharing — ₹24,000/mo</option>
-      <option value="double">Double sharing — ₹12,000/mo</option>
+      <option value="single">Single sharing — ₹24,000/mo (Advance ₹20,000)</option>
+      <option value="double">Double sharing — ₹12,000/mo (Advance ₹10,000)</option>
       <option value="any">Any available</option>
     </select>
     <label>Expected move-in date</label>
@@ -164,14 +164,14 @@ textarea{resize:none;height:80px}
       <div class="price-type">Single sharing</div>
       <div class="price-amt">₹24,000<span>/mo</span></div>
       <div class="price-adv">Advance deposit: ₹20,000</div>
-      <div class="price-ref">Refundable: ₹14,000</div>
+      <div class="price-ref">Refundable: ₹15,000 · Maintenance: ₹5,000</div>
       <span class="avail-pill avail-y" id="avail-single">Checking availability…</span>
     </div>
     <div class="price-cell" style="border-left:1px solid var(--border);">
       <div class="price-type">Double sharing</div>
       <div class="price-amt">₹12,000<span>/mo</span></div>
-      <div class="price-adv">Advance deposit: ₹7,000</div>
-      <div class="price-ref">Refundable: ₹4,000</div>
+      <div class="price-adv">Advance deposit: ₹10,000</div>
+      <div class="price-ref">Refundable: ₹10,000</div>
       <span class="avail-pill avail-y" id="avail-double">Checking availability…</span>
     </div>
   </div>
@@ -212,6 +212,15 @@ textarea{resize:none;height:80px}
     <div class="rule-row"><div class="rule-n">7</div><div>All residents must follow the rules and cooperate for a peaceful living environment.</div></div>
     <div class="rule-row"><div class="rule-n">8</div><div>Any <span class="rule-highlight">damage to property or furniture</span> is chargeable to the respective resident.</div></div>
     <div class="rule-row"><div class="rule-n">9</div><div>Management decision is final in all matters.</div></div>
+    <div class="rule-row"><div class="rule-n">10</div><div><span class="rule-highlight">No cooking inside rooms</span> — use common kitchen/dining area only. Violation leads to immediate eviction.</div></div>
+    <div class="rule-row"><div class="rule-n">11</div><div><span class="rule-highlight">No electric heaters, irons, or high-wattage appliances</span> in rooms. Fire risk and circuit damage will be charged to the resident.</div></div>
+    <div class="rule-row"><div class="rule-n">12</div><div>Common areas (bathrooms, kitchen, washing area) must be <span class="rule-highlight">cleaned after every use</span>. Leave it better than you found it.</div></div>
+    <div class="rule-row"><div class="rule-n">13</div><div><span class="rule-highlight">No subletting</span> — your bed or room cannot be given to another person temporarily or permanently under any circumstances.</div></div>
+    <div class="rule-row"><div class="rule-n">14</div><div>Residents must <span class="rule-highlight">inform management immediately</span> of any infectious illness for the safety and health of all co-residents.</div></div>
+    <div class="rule-row"><div class="rule-n">15</div><div><span class="rule-highlight">No food stored in rooms for more than 24 hours</span> — strictly for pest control and hygiene. Use the common dining area for all meals.</div></div>
+    <div class="rule-row"><div class="rule-n">16</div><div><span class="rule-highlight">Keys and access cards must not be duplicated or shared</span> with anyone including family. Lost keys will be charged to the resident.</div></div>
+    <div class="rule-row"><div class="rule-n">17</div><div>Any room damage will be assessed <span class="rule-highlight">within 48 hours of vacating</span>. Disputes or claims after 7 days will not be entertained.</div></div>
+    <div class="rule-row"><div class="rule-n">18</div><div><span class="rule-highlight">Management is not responsible for personal belongings</span> — phones, watches, laptops, cash, or any valuables. Keep your belongings in the provided lockers and always lock your room when you leave. This is entirely your responsibility.</div></div>
   </div>
 </div>
 
@@ -307,6 +316,14 @@ function submitEnquiry() {
   ].filter(l => l !== undefined).join('\n');
 
   window.open(`https://wa.me/91${MGMT_PHONE}?text=${encodeURIComponent(lines)}`, '_blank');
+
+  // Also save to app so owner sees all enquiries in the dashboard
+  fetch('/api/enquiries', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ name, phone, room_type: type, move_in_date: date, occupation: occ, message: msg, pg_id: parseInt(pgId)||1 })
+  }).catch(()=>{});
+
   document.getElementById('e-success').style.display = 'block';
   setTimeout(closeSheet, 3500);
 }

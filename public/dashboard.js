@@ -8,8 +8,11 @@ async function loadDashboard() {
     return;
   }
   try {
-    const d = await api('/dashboard');
-    renderDashboard(d);
+    const [d, enquiries] = await Promise.all([
+      api('/dashboard'),
+      api('/enquiries?status=new').catch(() => []),
+    ]);
+    renderDashboard(d, enquiries);
   } catch (e) {
     el.innerHTML = `<div class="card"><div class="empty-state-title">Couldn't load dashboard</div><div>${e.message}</div></div>`;
   }
@@ -22,12 +25,39 @@ const CATEGORY_LABELS = {
   plumbing: 'Plumbing', furniture: 'Furniture', cleaning: 'Cleaning', other: 'Other',
 };
 
-function renderDashboard(d) {
+function renderDashboard(d, enquiries = []) {
   const el = document.getElementById('screen-dashboard');
   const occPct = d.total_beds ? Math.round((d.occupied_beds / d.total_beds) * 100) : 0;
   const categoryEntries = Object.entries(d.expenses_by_category || {}).sort((a, b) => b[1] - a[1]);
 
   el.innerHTML = `
+    ${enquiries.length > 0 ? `
+      <div class="card" style="border-color:var(--gold);margin-bottom:12px;">
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
+          <span style="color:var(--gold);">New Room Enquiries (${enquiries.length})</span>
+          <button class="btn btn-sm" onclick="loadAllEnquiries()" style="font-size:11px;">View all</button>
+        </div>
+        ${enquiries.slice(0,3).map(e => `
+          <div class="list-row" style="padding:10px 0;">
+            <div class="list-row-main">
+              <div class="list-row-title">${escapeHtml(e.name)} · ${escapeHtml(e.phone)}</div>
+              <div class="list-row-sub">
+                ${e.room_type ? e.room_type + ' sharing' : 'Any'} ·
+                ${e.move_in_date ? 'Move-in: ' + fmtDate(e.move_in_date) : 'Date not given'} ·
+                ${fmtDate(e.created_at.slice(0,10))}
+              </div>
+              ${e.message ? `<div class="list-row-sub" style="margin-top:2px;font-style:italic;">"${escapeHtml(e.message.slice(0,60))}${e.message.length>60?'…':''}"</div>` : ''}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+              <a href="tel:${escapeHtml(e.phone)}" class="btn btn-sm" style="font-size:11px;color:var(--green);">Call</a>
+              <a href="https://wa.me/91${e.phone.replace(/\D/g,'')}?text=${encodeURIComponent('Hi ' + e.name + ', thank you for your enquiry at Sri Lakshmi Venkateshwara Luxury Co-Living PG. We have rooms available. When would you like to visit?')}" target="_blank" class="btn btn-sm" style="font-size:11px;">WhatsApp</a>
+              <button class="btn btn-sm" style="font-size:11px;" onclick="markEnquiryContacted(${e.id})">Mark contacted</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    ` : ''}
+
     <div class="card">
       <div class="card-title">Occupancy</div>
       <div class="stat-grid">
@@ -118,4 +148,52 @@ function renderDashboard(d) {
       `).join('')}
     </div>
   `;
+}
+
+async function markEnquiryContacted(id) {
+  try {
+    await api(`/enquiries/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'contacted' }) });
+    showToast('Marked as contacted.', 'success');
+    loadDashboard();
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function loadAllEnquiries() {
+  try {
+    const all = await api('/enquiries');
+    const statusLabel = { new: 'New', contacted: 'Contacted', converted: 'Converted', not_interested: 'Not interested' };
+    const statusBadge = { new: 'badge-gold', contacted: 'badge-amber', converted: 'badge-green', not_interested: 'badge-gray' };
+    openModal(`
+      <div class="modal-header">
+        <div class="modal-title">All Room Enquiries</div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      ${all.length === 0 ? '<div class="empty-state">No enquiries yet.</div>' :
+        all.map(e => `
+          <div class="list-row" style="padding:10px 0;border-bottom:1px solid var(--border);">
+            <div class="list-row-main">
+              <div class="list-row-title">${escapeHtml(e.name)} · ${escapeHtml(e.phone)}</div>
+              <div class="list-row-sub">${e.room_type||'Any'} · ${e.move_in_date ? fmtDate(e.move_in_date) : '—'} · ${fmtDate(e.created_at.slice(0,10))}</div>
+              ${e.message ? `<div class="list-row-sub" style="font-style:italic;">"${escapeHtml(e.message.slice(0,80))}"</div>` : ''}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+              <span class="badge ${statusBadge[e.status]||'badge-gray'}">${statusLabel[e.status]||e.status}</span>
+              <select onchange="updateEnquiryStatus(${e.id}, this.value)" style="font-size:11px;padding:3px 6px;border-radius:6px;border:1px solid var(--border);">
+                ${['new','contacted','converted','not_interested'].map(s =>
+                  `<option value="${s}" ${e.status===s?'selected':''}>${statusLabel[s]}</option>`
+                ).join('')}
+              </select>
+            </div>
+          </div>`).join('')
+      }
+    `);
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function updateEnquiryStatus(id, status) {
+  try {
+    await api(`/enquiries/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+    showToast('Status updated.', 'success');
+    loadDashboard();
+  } catch(e) { showToast(e.message, 'error'); }
 }

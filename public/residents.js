@@ -197,7 +197,7 @@ function showResidentDetailModal(r) {
       </div>
     ` : ''}
 
-    <button class="btn btn-outline" style="margin-bottom:10px;width:100%;" onclick="openEditResidentModal(${r.id}, ${JSON.stringify(r).replace(/"/g, '&quot;')})">Edit resident details</button>
+    <button class="btn btn-outline" style="margin-bottom:10px;width:100%;" onclick="openEditResidentModal(${r.id})">Edit resident details</button>
     <button class="btn btn-outline" style="margin-bottom:10px;" onclick="openCheckinReceiptArea(${r.id})">Check-in Receipt</button>
 
     ${r.status === 'active' ? `
@@ -231,9 +231,9 @@ function showResidentDetailModal(r) {
   `);
 }
 
-async function openEditResidentModal(residentId, r) {
-  // Fetch fresh data in case card data is stale
-  try { r = await api(`/residents/${residentId}`); } catch(e) {}
+async function openEditResidentModal(residentId) {
+  let r;
+  try { r = await api(`/residents/${residentId}`); } catch(e) { showToast('Could not load resident.', 'error'); return; }
 
   openModal(`
     <div class="modal-header">
