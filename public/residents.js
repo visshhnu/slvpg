@@ -65,6 +65,11 @@ function renderResidentCard(r) {
     : 999;
   const checkinUrgent = !r.has_checkin_receipt && joinedDaysAgo > 3;
 
+  // A future booking: join_date hasn't arrived yet. They may have paid a
+  // booking advance, but they don't owe rent yet and "check-in" hasn't
+  // happened — both should read as "scheduled", not "overdue"/"pending".
+  const isFutureBooking = joinedDaysAgo < 0;
+
   // Border: red only for genuinely overdue rent; amber for softer issues
   const hasIssue = rent && rent.status === 'overdue';
   const hasWarning = (rent && (rent.status === 'partial'))
@@ -81,7 +86,9 @@ function renderResidentCard(r) {
 
   // Rent badge
   let rentBadge = '';
-  if (r.status === 'active' || r.status === 'notice_given') {
+  if (isFutureBooking) {
+    rentBadge = `<span class="badge badge-gold">Booked — moves in ${fmtDate(r.join_date)}</span>`;
+  } else if (r.status === 'active' || r.status === 'notice_given') {
     if (!rent) {
       rentBadge = `<span class="badge badge-gray">No rent entry yet</span>`;
     } else if (rent.status === 'paid') {
@@ -103,12 +110,14 @@ function renderResidentCard(r) {
     ? `<span class="badge badge-amber">Advance ${fmtBal(advPaid)}/${fmtBal(advExpected)}</span>`
     : '';
 
-  // Check-in badge — gray (not red) within grace period
-  const checkinBadge = r.has_checkin_receipt
-    ? `<span class="badge badge-green">Check-in done</span>`
-    : checkinUrgent
-      ? `<span class="badge badge-red">No check-in receipt</span>`
-      : `<span class="badge badge-gray">Check-in pending</span>`;
+  // Check-in badge — gray (not red) within grace period; "scheduled" wording for future bookings
+  const checkinBadge = isFutureBooking
+    ? `<span class="badge badge-gray">Move-in scheduled</span>`
+    : r.has_checkin_receipt
+      ? `<span class="badge badge-green">Check-in done</span>`
+      : checkinUrgent
+        ? `<span class="badge badge-red">No check-in receipt</span>`
+        : `<span class="badge badge-gray">Check-in pending</span>`;
 
   const vacateBadge = r.status === 'notice_given'
     ? `<span class="badge badge-amber">Leaves ${fmtDate(r.planned_vacate_date)}</span>` : '';

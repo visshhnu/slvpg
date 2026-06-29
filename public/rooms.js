@@ -40,7 +40,12 @@ function renderRooms() {
               <div class="room-card ${cls}" onclick="openRoomDetail(${room.id})">
                 ${room.needs_maintenance ? '<div class="maint-dot"></div>' : ''}
                 <div class="room-num">${escapeHtml(room.room_number)}</div>
-                <div class="room-occ">${occCount}/${room.capacity}</div>
+                <div class="bed-strip">
+                  ${room.beds.map(b => `
+                    <div class="bed-icon ${b.occupied ? 'bed-filled' : 'bed-vacant'}" title="${escapeHtml(b.label)} — ${b.occupied ? 'Occupied' : 'Vacant'}">${escapeHtml(b.label)}</div>
+                  `).join('')}
+                </div>
+                <div class="room-occ">${occCount}/${room.capacity} occupied</div>
               </div>
             `;
           }).join('')}

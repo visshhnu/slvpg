@@ -69,7 +69,7 @@ export async function onRequestGet({ request, env }) {
   const [
     totalBeds, occupiedBeds, activeResidents, vacatingNext,
     rentRows, noticesGiven, maintenanceRooms, advanceRows,
-    rentPaymentsInPeriod, advancePaymentsInPeriod, expensesInPeriod
+    rentPaymentsInPeriod, advancePaymentsInPeriod, expensesInPeriod, bookingsInPeriod
   ] = await Promise.all([
     env.DB.prepare('SELECT COUNT(*) as c FROM beds b JOIN rooms r ON r.id = b.room_id WHERE r.pg_id = ?').bind(pgId).first(),
     env.DB.prepare(`
@@ -104,6 +104,18 @@ export async function onRequestGet({ request, env }) {
     env.DB.prepare(`SELECT amount FROM payments WHERE pg_id = ? AND payment_type = 'rent' AND payment_date BETWEEN ? AND ?`).bind(pgId, period.from, period.to).all(),
     env.DB.prepare(`SELECT amount FROM payments WHERE pg_id = ? AND payment_type = 'advance' AND payment_date BETWEEN ? AND ?`).bind(pgId, period.from, period.to).all(),
     env.DB.prepare(`SELECT category, amount FROM expenses WHERE pg_id = ? AND expense_date BETWEEN ? AND ?`).bind(pgId, period.from, period.to).all(),
+    // Bookings (by actual join_date, not when the record was entered into the
+    // system) — works for past joins AND future/upcoming bookings, since a
+    // Custom range with a future "to" date will naturally include them.
+    env.DB.prepare(`
+      SELECT res.id, res.name, res.join_date, res.status, res.advance_paid,
+        r.floor, r.room_number, r.advance_deposit, b.bed_label
+      FROM residents res
+      LEFT JOIN beds b ON b.id = res.bed_id
+      LEFT JOIN rooms r ON r.id = b.room_id
+      WHERE res.pg_id = ? AND res.join_date BETWEEN ? AND ?
+      ORDER BY res.join_date ASC
+    `).bind(pgId, period.from, period.to).all(),
   ]);
 
   const rentTotalDue = rentRows.results.reduce((s, r) => s + r.amount_due, 0);
@@ -128,6 +140,13 @@ export async function onRequestGet({ request, env }) {
     return { ...n, notice_days_given: days, eligible: days >= 30 };
   });
 
+  const todayStr = today;
+  const bookingsList = bookingsInPeriod.results.map(b => ({
+    ...b,
+    is_future: b.join_date > todayStr,
+    advance_balance: (b.advance_deposit || 0) - (b.advance_paid || 0),
+  }));
+
   return jsonResponse({
     total_beds: totalBeds.c,
     occupied_beds: occupiedBeds.c,
@@ -140,6 +159,7 @@ export async function onRequestGet({ request, env }) {
 
     // Period-aware (selected date range — Yesterday/Today/7d/1m/3m/Custom)
     period,
+    bookings_in_period: bookingsList,
     rent_collected: rentCollectedInPeriod,
     advance_collected: advanceCollectedInPeriod,
     expenses_this_month: expenseTotal,

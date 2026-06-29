@@ -114,6 +114,27 @@ function renderDashboard(d, enquiries = []) {
     </div>
 
     <div class="card">
+      <div class="card-title">Bookings — ${d.period ? d.period.label : 'This month'} <span style="font-weight:400;color:var(--ink-soft);font-size:11px;">(by join date)</span></div>
+      ${(!d.bookings_in_period || d.bookings_in_period.length === 0) ? `
+        <div class="empty-state">
+          <div class="empty-state-title">No joins in this period</div>
+          <div>Tip: pick Custom with a future "to" date to see upcoming bookings too.</div>
+        </div>
+      ` : d.bookings_in_period.map(b => `
+        <div class="list-row">
+          <div class="list-row-main">
+            <div class="list-row-title">${escapeHtml(b.name)}</div>
+            <div class="list-row-sub">${b.floor || ''} ${b.room_number || ''}${b.bed_label ? '-' + b.bed_label : ''} · ${b.is_future ? 'Moves in' : 'Joined'} ${fmtDate(b.join_date)}</div>
+          </div>
+          <div style="text-align:right;">
+            <span class="badge ${b.is_future ? 'badge-gold' : 'badge-green'}">${b.is_future ? 'Upcoming' : 'Joined'}</span>
+            ${b.advance_deposit ? `<div style="margin-top:4px;font-size:11px;color:var(--ink-soft);">Advance ${fmtMoney(b.advance_paid || 0)}/${fmtMoney(b.advance_deposit)}${b.advance_balance > 0 ? ' — pending' : ' ✓'}</div>` : ''}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="card">
       <div class="card-title">Money — choose a period</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
         ${DASHBOARD_RANGES.map(r => `
