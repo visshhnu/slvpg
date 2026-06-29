@@ -1,5 +1,16 @@
 // ===== Dashboard screen =====
 
+const DASHBOARD_RANGES = [
+  { key: 'yesterday', label: 'Yesterday' },
+  { key: 'today', label: 'Today' },
+  { key: '7d', label: '7 Days' },
+  { key: '1m', label: '1 Month' },
+  { key: '3m', label: '3 Months' },
+  { key: 'custom', label: 'Custom' },
+];
+
+let dashboardRange = { key: 'this_month', from: null, to: null };
+
 async function loadDashboard() {
   const el = document.getElementById('screen-dashboard');
   el.innerHTML = `<div class="card"><div class="empty-state">Loading…</div></div>`;
@@ -8,14 +19,36 @@ async function loadDashboard() {
     return;
   }
   try {
+    let dashPath = '/dashboard';
+    if (dashboardRange.key !== 'this_month') {
+      dashPath += `?range=${dashboardRange.key}`;
+      if (dashboardRange.key === 'custom' && dashboardRange.from && dashboardRange.to) {
+        dashPath += `&from=${dashboardRange.from}&to=${dashboardRange.to}`;
+      }
+    }
     const [d, enquiries] = await Promise.all([
-      api('/dashboard'),
+      api(dashPath),
       api('/enquiries?status=new').catch(() => []),
     ]);
     renderDashboard(d, enquiries);
   } catch (e) {
     el.innerHTML = `<div class="card"><div class="empty-state-title">Couldn't load dashboard</div><div>${e.message}</div></div>`;
   }
+}
+
+function setDashboardRange(key) {
+  if (key === 'custom') {
+    const today = new Date().toISOString().slice(0, 10);
+    dashboardRange = { key: 'custom', from: dashboardRange.from || today, to: dashboardRange.to || today };
+  } else {
+    dashboardRange = { key, from: null, to: null };
+  }
+  loadDashboard();
+}
+
+function setDashboardCustomDate(which, value) {
+  dashboardRange = { ...dashboardRange, key: 'custom', [which]: value };
+  if (dashboardRange.from && dashboardRange.to) loadDashboard();
 }
 
 const CATEGORY_LABELS = {
@@ -81,7 +114,26 @@ function renderDashboard(d, enquiries = []) {
     </div>
 
     <div class="card">
-      <div class="card-title">${monthLabel(d.this_month)} Money</div>
+      <div class="card-title">Money — choose a period</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
+        ${DASHBOARD_RANGES.map(r => `
+          <button class="btn btn-sm ${dashboardRange.key === r.key ? 'btn-primary' : 'btn-outline'}"
+            style="font-size:11.5px;padding:6px 10px;" onclick="setDashboardRange('${r.key}')">${r.label}</button>
+        `).join('')}
+        <button class="btn btn-sm ${dashboardRange.key === 'this_month' ? 'btn-primary' : 'btn-outline'}"
+          style="font-size:11.5px;padding:6px 10px;" onclick="setDashboardRange('this_month')">This Month</button>
+      </div>
+      ${dashboardRange.key === 'custom' ? `
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
+          <input type="date" value="${dashboardRange.from || ''}" onchange="setDashboardCustomDate('from', this.value)" style="flex:1;">
+          <span style="color:var(--ink-soft);font-size:12px;">to</span>
+          <input type="date" value="${dashboardRange.to || ''}" onchange="setDashboardCustomDate('to', this.value)" style="flex:1;">
+        </div>
+      ` : ''}
+    </div>
+
+    <div class="card">
+      <div class="card-title">${d.period ? d.period.label : monthLabel(d.this_month)} Money</div>
       <div class="stat-grid">
         <div class="stat-box">
           <div class="stat-num green">${fmtMoney(d.rent_collected)}</div>
@@ -89,7 +141,7 @@ function renderDashboard(d, enquiries = []) {
         </div>
         <div class="stat-box">
           <div class="stat-num red">${fmtMoney(d.rent_pending)}</div>
-          <div class="stat-label">Rent pending</div>
+          <div class="stat-label">Rent pending (now)</div>
         </div>
         <div class="stat-box">
           <div class="stat-num">${fmtMoney(d.expenses_this_month)}</div>
@@ -97,9 +149,32 @@ function renderDashboard(d, enquiries = []) {
         </div>
         <div class="stat-box">
           <div class="stat-num ${d.net_this_month >= 0 ? 'green' : 'red'}">${fmtMoney(d.net_this_month)}</div>
-          <div class="stat-label">Net this month</div>
+          <div class="stat-label">Net (this period)</div>
         </div>
       </div>
+      <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-soft);">
+        <div>Total rent collected + pending right now</div>
+        <div style="font-weight:700;color:var(--ink);">${fmtMoney(d.rent_collected + d.rent_pending)}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Advance Deposits</div>
+      <div class="stat-grid">
+        <div class="stat-box">
+          <div class="stat-num green">${fmtMoney(d.advance_collected)}</div>
+          <div class="stat-label">Advance collected (period)</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-num red">${fmtMoney(d.advance_pending)}</div>
+          <div class="stat-label">Advance pending (now)</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-soft);">
+        <div>Total advance collected + pending right now</div>
+        <div style="font-weight:700;color:var(--ink);">${fmtMoney(d.advance_collected + d.advance_pending)}</div>
+      </div>
+    </div>
       ${categoryEntries.length > 0 ? `
         <div style="margin-top:14px; border-top:1px solid var(--border); padding-top:12px;">
           ${categoryEntries.map(([cat, amt]) => `
