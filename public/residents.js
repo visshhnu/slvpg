@@ -2,6 +2,7 @@
 
 let residentFilter = 'active';
 let pendingResidentDocs = {};
+let pendingEditResidentDocs = {};
 
 async function loadResidents() {
   const el = document.getElementById('screen-residents');
@@ -188,14 +189,21 @@ function showResidentDetailModal(r) {
       <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Police Verification</div></div><div>${policeVerifBadge(r.police_verification_status)}</div></div>
     </div>
 
-    ${(r.aadhaar_photo_url || r.pan_photo_url || r.pan_number) ? `
+    ${(r.aadhaar_photo_url || r.pan_photo_url || r.pan_number || r.aadhaar_back_photo_url || r.passport_photo_url) ? `
       <div class="card" style="margin-bottom:12px;">
         <div class="card-title">Identity Documents</div>
-        ${r.aadhaar_photo_url ? `<p style="font-size:12px;color:var(--ink-soft);margin-bottom:4px;">Aadhaar</p><img src="${r.aadhaar_photo_url}" class="doc-preview" style="max-height:200px;">` : ''}
+        ${r.aadhaar_photo_url ? `<p style="font-size:12px;color:var(--ink-soft);margin-bottom:4px;">Aadhaar — Front</p><img src="${r.aadhaar_photo_url}" class="doc-preview" style="max-height:200px;">` : ''}
+        ${r.aadhaar_back_photo_url ? `<p style="font-size:12px;color:var(--ink-soft);margin:8px 0 4px;">Aadhaar — Back</p><img src="${r.aadhaar_back_photo_url}" class="doc-preview" style="max-height:200px;">` : ''}
         ${r.pan_number ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">PAN</div></div><div>${escapeHtml(r.pan_number)}</div></div>` : ''}
         ${r.pan_photo_url ? `<p style="font-size:12px;color:var(--ink-soft);margin:8px 0 4px;">PAN Card</p><img src="${r.pan_photo_url}" class="doc-preview" style="max-height:200px;">` : ''}
+        ${r.passport_photo_url ? `<p style="font-size:12px;color:var(--ink-soft);margin:8px 0 4px;">Passport-size Photo</p><img src="${r.passport_photo_url}" class="doc-preview" style="max-height:200px;">` : ''}
       </div>
-    ` : ''}
+    ` : `
+      <div class="card" style="margin-bottom:12px;border:1px solid #e0a; background:#fff4f4;">
+        <div class="card-title" style="color:#c0392b;">⚠️ No ID documents submitted yet</div>
+        <p style="font-size:12px;color:var(--ink-soft);">Aadhaar and a passport photo are mandatory before move-in. Edit this resident to upload.</p>
+      </div>
+    `}
 
     <button class="btn btn-outline" style="margin-bottom:10px;width:100%;" onclick="openEditResidentModal(${r.id})">Edit resident details</button>
     <button class="btn btn-outline" style="margin-bottom:10px;" onclick="openCheckinReceiptArea(${r.id})">Check-in Receipt</button>
@@ -283,14 +291,44 @@ async function openEditResidentModal(residentId) {
       <option value="1" ${r.agreement_signed?'selected':''}>Yes</option>
     </select>
 
+    <label>Custom rent for this bed <span style="font-weight:400;color:var(--ink-soft);">(leave blank to use room's default rent)</span></label>
+    <input id="er-custom-rent" type="number" value="${r.custom_rent != null ? r.custom_rent : ''}" placeholder="Room default: ${fmtMoney(r.monthly_rent || 0)}">
+
+    <div class="card" style="margin:14px 0;">
+      <div class="card-title">Identity Documents</div>
+      <p style="font-size:12px;color:var(--ink-soft);margin:-4px 0 10px;">Upload a new photo only if you need to replace the existing one.</p>
+      <label>Aadhaar Photo — Front</label>
+      <input type="file" id="er-aadhaar-file" accept="image/*">
+      <img id="er-aadhaar-preview" class="hidden doc-preview" src="${r.aadhaar_photo_url || ''}" ${r.aadhaar_photo_url ? '' : 'style="display:none;"'}>
+
+      <label style="margin-top:10px;">Aadhaar Photo — Back</label>
+      <input type="file" id="er-aadhaar-back-file" accept="image/*">
+      <img id="er-aadhaar-back-preview" class="hidden doc-preview" src="${r.aadhaar_back_photo_url || ''}" ${r.aadhaar_back_photo_url ? '' : 'style="display:none;"'}>
+
+      <label style="margin-top:10px;">PAN Photo</label>
+      <input type="file" id="er-pan-file" accept="image/*">
+      <img id="er-pan-preview" class="hidden doc-preview" src="${r.pan_photo_url || ''}" ${r.pan_photo_url ? '' : 'style="display:none;"'}>
+
+      <label style="margin-top:10px;">Passport-size Photo (face)</label>
+      <input type="file" id="er-passport-file" accept="image/*">
+      <img id="er-passport-preview" class="hidden doc-preview" src="${r.passport_photo_url || ''}" ${r.passport_photo_url ? '' : 'style="display:none;"'}>
+    </div>
+
     <label>Notes</label>
     <textarea id="er-notes" rows="3">${escapeHtml(r.notes || '')}</textarea>
 
     <button class="btn btn-primary" style="margin-top:16px;width:100%;" onclick="submitEditResident(${residentId})">Save changes</button>
   `);
+
+  pendingEditResidentDocs = {};
+  wireImageUpload('er-aadhaar-file', 'er-aadhaar-preview', (dataUrl) => { pendingEditResidentDocs.aadhaar_photo_url = dataUrl; });
+  wireImageUpload('er-aadhaar-back-file', 'er-aadhaar-back-preview', (dataUrl) => { pendingEditResidentDocs.aadhaar_back_photo_url = dataUrl; });
+  wireImageUpload('er-pan-file', 'er-pan-preview', (dataUrl) => { pendingEditResidentDocs.pan_photo_url = dataUrl; });
+  wireImageUpload('er-passport-file', 'er-passport-preview', (dataUrl) => { pendingEditResidentDocs.passport_photo_url = dataUrl; });
 }
 
 async function submitEditResident(residentId) {
+  const customRentRaw = document.getElementById('er-custom-rent').value;
   const body = {
     name: document.getElementById('er-name').value.trim(),
     phone: document.getElementById('er-phone').value.trim(),
@@ -303,7 +341,9 @@ async function submitEditResident(residentId) {
     emergency_contact_phone: document.getElementById('er-emphone').value.trim() || null,
     police_verification_status: document.getElementById('er-police').value,
     agreement_signed: document.getElementById('er-agreement').value === '1',
+    custom_rent: customRentRaw ? parseInt(customRentRaw, 10) : null,
     notes: document.getElementById('er-notes').value.trim() || null,
+    ...(pendingEditResidentDocs || {}),
   };
 
   if (!body.name || !body.phone) {
@@ -567,7 +607,7 @@ async function openAddResidentModal(preselectedBedId) {
   });
 
   const today = new Date().toISOString().slice(0, 10);
-  pendingResidentDocs = { aadhaar_photo_url: null, pan_photo_url: null, id_proof_photo_url: null };
+  pendingResidentDocs = { aadhaar_photo_url: null, aadhaar_back_photo_url: null, pan_photo_url: null, id_proof_photo_url: null, passport_photo_url: null };
 
   openModal(`
     <div class="modal-header">
@@ -587,6 +627,8 @@ async function openAddResidentModal(preselectedBedId) {
     <input id="res-join" type="date" value="${today}">
     <label>Advance Paid</label>
     <input id="res-advance" type="number" placeholder="0">
+    <label>Custom Rent for this bed <span style="font-weight:400;color:var(--ink-soft);">(leave blank to use room's default rent)</span></label>
+    <input id="res-custom-rent" type="number" placeholder="Leave blank for room default">
     <label>Occupation</label>
     <select id="res-occupation">
       <option value="Student">Student</option>
@@ -601,17 +643,26 @@ async function openAddResidentModal(preselectedBedId) {
 
     <div class="card" style="margin:14px 0;">
       <div class="card-title">Identity Documents</div>
+      <p style="font-size:12px;color:var(--ink-soft);margin:-4px 0 10px;">All four are required before move-in — this is mandatory per house rules.</p>
       <label>Aadhaar Number</label>
       <input id="res-aadhaar" placeholder="XXXX XXXX XXXX">
-      <label>Aadhaar Photo</label>
+      <label>Aadhaar Photo — Front</label>
       <input type="file" id="res-aadhaar-file" accept="image/*">
       <img id="res-aadhaar-preview" class="hidden doc-preview">
+
+      <label style="margin-top:10px;">Aadhaar Photo — Back</label>
+      <input type="file" id="res-aadhaar-back-file" accept="image/*">
+      <img id="res-aadhaar-back-preview" class="hidden doc-preview">
 
       <label style="margin-top:10px;">PAN Number (optional)</label>
       <input id="res-pan" placeholder="ABCDE1234F">
       <label>PAN Photo</label>
       <input type="file" id="res-pan-file" accept="image/*">
       <img id="res-pan-preview" class="hidden doc-preview">
+
+      <label style="margin-top:10px;">Passport-size Photo (face)</label>
+      <input type="file" id="res-passport-file" accept="image/*">
+      <img id="res-passport-preview" class="hidden doc-preview">
     </div>
 
     <label>Police Verification</label>
@@ -627,7 +678,9 @@ async function openAddResidentModal(preselectedBedId) {
   `);
 
   wireImageUpload('res-aadhaar-file', 'res-aadhaar-preview', (dataUrl) => { pendingResidentDocs.aadhaar_photo_url = dataUrl; });
+  wireImageUpload('res-aadhaar-back-file', 'res-aadhaar-back-preview', (dataUrl) => { pendingResidentDocs.aadhaar_back_photo_url = dataUrl; });
   wireImageUpload('res-pan-file', 'res-pan-preview', (dataUrl) => { pendingResidentDocs.pan_photo_url = dataUrl; });
+  wireImageUpload('res-passport-file', 'res-passport-preview', (dataUrl) => { pendingResidentDocs.passport_photo_url = dataUrl; });
 }
 
 async function submitAddResident() {
@@ -644,6 +697,8 @@ async function submitAddResident() {
   const emergency_contact_phone = document.getElementById('res-emergency-phone').value.trim();
   const police_verification_status = document.getElementById('res-police').value;
   const agreement_signed = document.getElementById('res-agreement').checked;
+  const customRentRaw = document.getElementById('res-custom-rent').value;
+  const custom_rent = customRentRaw ? parseInt(customRentRaw, 10) : null;
 
   if (!name || !phone || !bed_id || !join_date) {
     showToast('Name, phone, bed and join date are required.', 'error');
@@ -656,9 +711,11 @@ async function submitAddResident() {
       body: JSON.stringify({
         name, phone, aadhaar_number, pan_number, bed_id, join_date, advance_paid, occupation,
         company_or_college, emergency_contact_name, emergency_contact_phone,
-        police_verification_status, agreement_signed,
+        police_verification_status, agreement_signed, custom_rent,
         aadhaar_photo_url: pendingResidentDocs.aadhaar_photo_url,
+        aadhaar_back_photo_url: pendingResidentDocs.aadhaar_back_photo_url,
         pan_photo_url: pendingResidentDocs.pan_photo_url,
+        passport_photo_url: pendingResidentDocs.passport_photo_url,
       }),
     });
     closeModal();

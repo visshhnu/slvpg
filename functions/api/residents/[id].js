@@ -58,13 +58,13 @@ export async function onRequestPatch({ request, env, params }) {
 
   const body = await request.json();
   const allowedFields = [
-    'name', 'photo_url', 'phone', 'alt_phone', 'aadhaar_number', 'aadhaar_photo_url',
-    'pan_number', 'pan_photo_url', 'id_proof_type', 'id_proof_number', 'id_proof_photo_url',
+    'name', 'photo_url', 'phone', 'alt_phone', 'aadhaar_number', 'aadhaar_photo_url', 'aadhaar_back_photo_url',
+    'pan_number', 'pan_photo_url', 'id_proof_type', 'id_proof_number', 'id_proof_photo_url', 'passport_photo_url',
     'occupation', 'company_or_college', 'emergency_contact_name', 'emergency_contact_phone',
     'status', 'notice_date', 'planned_vacate_date', 'actual_vacate_date',
     'room_inspection_done', 'room_inspection_notes', 'deductions', 'deduction_reason',
     'refund_paid', 'refund_paid_date', 'notes', 'advance_paid', 'bed_id',
-    'agreement_signed', 'agreement_url', 'police_verification_status'
+    'agreement_signed', 'agreement_url', 'police_verification_status', 'custom_rent'
   ];
 
   const updates = [];

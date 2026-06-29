@@ -1,5 +1,6 @@
 // functions/api/dashboard.js
 import { requireAuth, jsonResponse, unauthorized, resolvePgId } from '../_auth.js';
+import { ensureLedgerRows } from '../_rent.js';
 
 export async function onRequestGet({ request, env }) {
   const session = await requireAuth(request, env);
@@ -15,9 +16,14 @@ export async function onRequestGet({ request, env }) {
   nextMonthDate.setMonth(nextMonthDate.getMonth() + 1);
   const nextMonth = nextMonthDate.toISOString().slice(0, 7);
 
+  // IMPORTANT: create any missing rent_ledger rows for this month BEFORE summing,
+  // the same way the Rent tab does. Without this, residents who haven't had a
+  // ledger row created yet are invisible to the totals below.
+  await ensureLedgerRows(env, pgId, thisMonth);
+
   const [
     totalBeds, occupiedBeds, activeResidents, vacatingNext,
-    rentRows, expenseRows, noticesGiven, maintenanceRooms
+    rentRows, expenseRows, noticesGiven, maintenanceRooms, advanceRows
   ] = await Promise.all([
     env.DB.prepare('SELECT COUNT(*) as c FROM beds b JOIN rooms r ON r.id = b.room_id WHERE r.pg_id = ?').bind(pgId).first(),
     env.DB.prepare(`
@@ -41,6 +47,13 @@ export async function onRequestGet({ request, env }) {
       ORDER BY res.planned_vacate_date ASC
     `).bind(pgId).all(),
     env.DB.prepare(`SELECT id, floor, room_number, maintenance_note FROM rooms WHERE pg_id = ? AND needs_maintenance = 1`).bind(pgId).all(),
+    env.DB.prepare(`
+      SELECT res.advance_paid, r.advance_deposit
+      FROM residents res
+      LEFT JOIN beds b ON b.id = res.bed_id
+      LEFT JOIN rooms r ON r.id = b.room_id
+      WHERE res.pg_id = ? AND res.status != 'vacated'
+    `).bind(pgId).all(),
   ]);
 
   const rentTotalDue = rentRows.results.reduce((s, r) => s + r.amount_due, 0);
@@ -51,6 +64,9 @@ export async function onRequestGet({ request, env }) {
     expenseByCategory[e.category] = (expenseByCategory[e.category] || 0) + e.amount;
   }
   const expenseTotal = expenseRows.results.reduce((s, r) => s + r.amount, 0);
+
+  const advanceTotalDue = advanceRows.results.reduce((s, r) => s + (r.advance_deposit || 0), 0);
+  const advanceTotalCollected = advanceRows.results.reduce((s, r) => s + (r.advance_paid || 0), 0);
 
   // Refund eligibility check for anyone with a notice on file (30-day rule)
   const noticesWithEligibility = noticesGiven.results.map(n => {
@@ -70,6 +86,8 @@ export async function onRequestGet({ request, env }) {
     this_month: thisMonth,
     rent_collected: rentTotalPaid,
     rent_pending: rentTotalDue - rentTotalPaid,
+    advance_collected: advanceTotalCollected,
+    advance_pending: advanceTotalDue - advanceTotalCollected,
     expenses_this_month: expenseTotal,
     expenses_by_category: expenseByCategory,
     net_this_month: rentTotalPaid - expenseTotal,

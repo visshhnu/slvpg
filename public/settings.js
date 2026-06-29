@@ -430,6 +430,7 @@ const DEFAULT_RULES = [
   'Rent and advance must be paid only to the management number. Payment to any other person is not acceptable.',
   'All residents must follow house rules and cooperate for a peaceful environment.',
   'Any damage to property or furniture is chargeable to the responsible resident.',
+  'A copy of a valid government ID (Aadhaar/Passport) must be submitted before move-in. No check-in without ID proof.',
   'Management decision is final in all matters.',
 ];
 

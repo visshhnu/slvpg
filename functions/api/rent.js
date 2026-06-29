@@ -1,5 +1,6 @@
 // functions/api/rent.js
 import { requireAuth, jsonResponse, unauthorized, resolvePgId } from '../_auth.js';
+import { ensureLedgerRows } from '../_rent.js';
 
 export async function onRequestGet({ request, env }) {
   const session = await requireAuth(request, env);
@@ -12,27 +13,7 @@ export async function onRequestGet({ request, env }) {
   const month = url.searchParams.get('month') || new Date().toISOString().slice(0, 7);
 
   // Auto-create ledger rows for all active residents who don't have one yet
-  const { results: activeResidents } = await env.DB.prepare(`
-    SELECT res.id, r.monthly_rent
-    FROM residents res
-    JOIN beds b ON b.id = res.bed_id
-    JOIN rooms r ON r.id = b.room_id
-    WHERE res.pg_id = ? AND res.status IN ('active', 'notice_given')
-  `).bind(pgId).all();
-
-  const dueDate = `${month}-05`;
-
-  for (const res of activeResidents) {
-    const exists = await env.DB.prepare(
-      'SELECT id FROM rent_ledger WHERE resident_id = ? AND month = ?'
-    ).bind(res.id, month).first();
-    if (!exists) {
-      await env.DB.prepare(
-        `INSERT INTO rent_ledger (pg_id, resident_id, month, due_date, amount_due, status)
-         VALUES (?, ?, ?, ?, ?, 'pending')`
-      ).bind(pgId, res.id, month, dueDate, res.monthly_rent).run();
-    }
-  }
+  await ensureLedgerRows(env, pgId, month);
 
   // Fetch ledger rows with resident + room info AND advance info from the room
   const { results } = await env.DB.prepare(`

@@ -1,5 +1,6 @@
 // functions/api/residents.js
 import { requireAuth, jsonResponse, unauthorized, resolvePgId } from '../_auth.js';
+import { ensureLedgerRows } from '../_rent.js';
 
 export async function onRequestGet({ request, env }) {
   const session = await requireAuth(request, env);
@@ -11,6 +12,10 @@ export async function onRequestGet({ request, env }) {
 
   const status = url.searchParams.get('status');
   const currentMonth = new Date().toISOString().slice(0, 7);
+
+  // Same fix as dashboard.js: create this month's ledger rows before reading
+  // them, so "No rent entry yet" doesn't show just because no one opened Rent tab.
+  await ensureLedgerRows(env, pgId, currentMonth);
 
   let query = `
     SELECT
@@ -76,10 +81,10 @@ export async function onRequestPost({ request, env }) {
 
   const body = await request.json();
   const {
-    name, photo_url, phone, alt_phone, aadhaar_number, aadhaar_photo_url,
-    pan_number, pan_photo_url, id_proof_type, id_proof_number, id_proof_photo_url,
+    name, photo_url, phone, alt_phone, aadhaar_number, aadhaar_photo_url, aadhaar_back_photo_url,
+    pan_number, pan_photo_url, id_proof_type, id_proof_number, id_proof_photo_url, passport_photo_url,
     occupation, company_or_college, emergency_contact_name, emergency_contact_phone,
-    bed_id, join_date, advance_paid, agreement_signed, police_verification_status, notes
+    bed_id, join_date, advance_paid, agreement_signed, police_verification_status, notes, custom_rent
   } = body;
 
   if (!name || !phone || !bed_id || !join_date) {
@@ -103,20 +108,21 @@ export async function onRequestPost({ request, env }) {
   try {
     result = await env.DB.prepare(`
       INSERT INTO residents (
-        pg_id, name, photo_url, phone, alt_phone, aadhaar_number, aadhaar_photo_url,
-        pan_number, pan_photo_url, id_proof_type, id_proof_number, id_proof_photo_url,
+        pg_id, name, photo_url, phone, alt_phone, aadhaar_number, aadhaar_photo_url, aadhaar_back_photo_url,
+        pan_number, pan_photo_url, id_proof_type, id_proof_number, id_proof_photo_url, passport_photo_url,
         occupation, company_or_college, emergency_contact_name, emergency_contact_phone,
-        bed_id, join_date, advance_paid, agreement_signed, police_verification_status, status, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+        bed_id, join_date, advance_paid, agreement_signed, police_verification_status, status, notes, custom_rent
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
     `).bind(
       pgId, name, photo_url || null, phone, alt_phone || null,
-      aadhaar_number || null, aadhaar_photo_url || null,
+      aadhaar_number || null, aadhaar_photo_url || null, aadhaar_back_photo_url || null,
       pan_number || null, pan_photo_url || null,
-      id_proof_type || null, id_proof_number || null, id_proof_photo_url || null,
+      id_proof_type || null, id_proof_number || null, id_proof_photo_url || null, passport_photo_url || null,
       occupation || null, company_or_college || null,
       emergency_contact_name || null, emergency_contact_phone || null,
       bed_id, join_date, advance_paid || 0,
-      agreement_signed ? 1 : 0, police_verification_status || 'pending', notes || null
+      agreement_signed ? 1 : 0, police_verification_status || 'pending', notes || null,
+      custom_rent || null
     ).run();
   } catch (e) {
     if (String(e).includes('no such column') || String(e).includes('table residents has no column')) {
