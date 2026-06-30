@@ -112,8 +112,14 @@ textarea{resize:none;height:80px}
     </select>
     <label>Message / questions (optional)</label>
     <textarea id="e-msg" placeholder="Any specific requirements or questions about the property…"></textarea>
-    <button class="btn-submit" onclick="submitEnquiry()">Send booking request via WhatsApp</button>
-    <div class="success-box" id="e-success">Request sent! We'll call you within a few hours to confirm your room.</div>
+    <button class="btn-submit" id="e-submit-btn" onclick="submitEnquiry()">Send booking request</button>
+    <div class="success-box" id="e-success">
+      Request sent! We'll call you within a few hours to confirm your room.
+      <div style="margin-top:8px;">
+        <a href="#" id="e-whatsapp-link" target="_blank" style="font-size:12px;color:#1a7a1a;text-decoration:underline;">Prefer WhatsApp? Send us the same details there too</a>
+      </div>
+    </div>
+    <div class="error-box" id="e-error" style="display:none;color:#B23B3B;font-size:12.5px;margin-top:8px;text-align:center;"></div>
     <p style="font-size:11px;color:var(--ink-soft);text-align:center;margin-top:12px;">By enquiring you agree to our house rules and terms.</p>
   </div>
 </div>
@@ -340,13 +346,17 @@ const PG_NAME = 'Sri Lakshmi Venkateshwara Luxury Co-Living PG';
 function openSheet() { document.getElementById('sheet').classList.add('open'); }
 function closeSheet() { document.getElementById('sheet').classList.remove('open'); }
 
-function submitEnquiry() {
+async function submitEnquiry() {
   const name = document.getElementById('e-name').value.trim();
   const phone = document.getElementById('e-phone').value.trim();
   const type = document.getElementById('e-type').value;
   const date = document.getElementById('e-date').value;
   const occ = document.getElementById('e-occ').value;
   const msg = document.getElementById('e-msg').value.trim();
+  const btn = document.getElementById('e-submit-btn');
+  const errorBox = document.getElementById('e-error');
+
+  errorBox.style.display = 'none';
 
   if (!name || !phone) { alert('Please enter your name and phone number.'); return; }
   if (phone.replace(/\D/g,'').length < 10) { alert('Please enter a valid 10-digit phone number.'); return; }
@@ -363,18 +373,31 @@ function submitEnquiry() {
     ``,
     `_Sent from the property page_`,
   ].filter(l => l !== undefined).join('\n');
+  document.getElementById('e-whatsapp-link').href = `https://wa.me/91${MGMT_PHONE}?text=${encodeURIComponent(lines)}`;
 
-  window.open(`https://wa.me/91${MGMT_PHONE}?text=${encodeURIComponent(lines)}`, '_blank');
+  // The booking request itself is the primary action — it must actually
+  // succeed and be confirmed before we tell the visitor it's done. WhatsApp
+  // is now a separate, optional link shown after a real success — not the
+  // only thing that happens when this button is tapped.
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  try {
+    const res = await fetch('/api/enquiries', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name, phone, room_type: type, move_in_date: date, occupation: occ, message: msg, pg_id: 1 })
+    });
+    if (!res.ok) throw new Error('Server error');
 
-  // Also save to app so owner sees all enquiries in the dashboard
-  fetch('/api/enquiries', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ name, phone, room_type: type, move_in_date: date, occupation: occ, message: msg, pg_id: 1 })
-  }).catch(()=>{});
-
-  document.getElementById('e-success').style.display = 'block';
-  setTimeout(closeSheet, 3500);
+    document.getElementById('e-success').style.display = 'block';
+    setTimeout(closeSheet, 4500);
+  } catch (e) {
+    errorBox.textContent = "Couldn't send your request — please call us directly or try again.";
+    errorBox.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Send booking request';
+  }
 }
 
 // Try to fetch live availability from API — updates the badges if published

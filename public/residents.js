@@ -269,6 +269,9 @@ async function openEditResidentModal(residentId) {
     <label>Alt phone</label>
     <input id="er-altphone" type="tel" value="${escapeHtml(r.alt_phone || '')}">
 
+    <label>Join / move-in date <span style="font-weight:400;color:var(--ink-soft);">(controls when they're billed and when the bed shows as occupied)</span></label>
+    <input id="er-join-date" type="date" value="${r.join_date || ''}">
+
     <label>Aadhaar number</label>
     <input id="er-aadhaar" value="${escapeHtml(r.aadhaar_number || '')}">
 
@@ -342,6 +345,7 @@ async function submitEditResident(residentId) {
     name: document.getElementById('er-name').value.trim(),
     phone: document.getElementById('er-phone').value.trim(),
     alt_phone: document.getElementById('er-altphone').value.trim() || null,
+    join_date: document.getElementById('er-join-date').value || null,
     aadhaar_number: document.getElementById('er-aadhaar').value.trim() || null,
     pan_number: document.getElementById('er-pan').value.trim() || null,
     occupation: document.getElementById('er-occ').value.trim() || null,

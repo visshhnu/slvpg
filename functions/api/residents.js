@@ -147,5 +147,20 @@ export async function onRequestPost({ request, env }) {
     }
   }
 
-  return jsonResponse({ success: true, id: result.meta.last_row_id });
+  const newResidentId = result.meta.last_row_id;
+
+  // If an initial advance was entered right here on the Add Resident form,
+  // it was real money received — log it as a proper payments row too
+  // (payment_date = join_date), not just a number on the resident record.
+  // Without this, the dashboard's period filters (Today/7 Days/etc.) never
+  // see this money as "collected" — it would only ever show up as part of
+  // a number nobody can trace back to an actual transaction.
+  if (advance_paid && advance_paid > 0) {
+    await env.DB.prepare(`
+      INSERT INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note)
+      VALUES (?, ?, ?, ?, 'cash', 'advance', ?, 'Initial advance at move-in')
+    `).bind(pgId, newResidentId, advance_paid, join_date, session.name).run();
+  }
+
+  return jsonResponse({ success: true, id: newResidentId });
 }
