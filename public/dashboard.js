@@ -111,6 +111,22 @@ function renderDashboard(d, enquiries = []) {
           <div class="stat-label">Vacating next month</div>
         </div>
       </div>
+      ${d.reserved_beds > 0 ? `
+        <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-soft);">
+          <div>Reserved (future move-ins, not yet checked in)</div>
+          <div style="font-weight:700;color:var(--gold);">${d.reserved_beds}</div>
+        </div>
+      ` : ''}
+      ${d.sharing_breakdown && d.sharing_breakdown.length > 0 ? `
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+          ${d.sharing_breakdown.map(s => `
+            <div class="list-row" style="padding:6px 0;">
+              <div class="list-row-main"><div class="list-row-sub" style="text-transform:capitalize;">${s.sharing_type} sharing</div></div>
+              <div style="font-weight:700;font-size:13px;">${s.occupied_beds}/${s.total_beds} occupied</div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
     </div>
 
     <div class="card">

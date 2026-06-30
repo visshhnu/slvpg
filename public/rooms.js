@@ -35,17 +35,19 @@ function renderRooms() {
         <div class="room-grid">
           ${floorRooms.map(room => {
             const occCount = room.beds.filter(b => b.occupied).length;
-            const cls = occCount === room.capacity ? 'full' : occCount === 0 ? 'empty' : 'partial';
+            const reservedCount = room.beds.filter(b => b.reserved).length;
+            const cls = occCount === room.capacity ? 'full'
+              : occCount === 0 && reservedCount === 0 ? 'empty' : 'partial';
             return `
               <div class="room-card ${cls}" onclick="openRoomDetail(${room.id})">
                 ${room.needs_maintenance ? '<div class="maint-dot"></div>' : ''}
                 <div class="room-num">${escapeHtml(room.room_number)}</div>
                 <div class="bed-strip">
                   ${room.beds.map(b => `
-                    <div class="bed-icon ${b.occupied ? 'bed-filled' : 'bed-vacant'}" title="${escapeHtml(b.label)} — ${b.occupied ? 'Occupied' : 'Vacant'}">${escapeHtml(b.label)}</div>
+                    <div class="bed-icon ${b.occupied ? 'bed-filled' : b.reserved ? 'bed-reserved' : 'bed-vacant'}" title="${escapeHtml(b.label)} — ${b.occupied ? 'Occupied' : b.reserved ? 'Reserved (moves in ' + b.resident.join_date + ')' : 'Vacant'}">${escapeHtml(b.label)}</div>
                   `).join('')}
                 </div>
-                <div class="room-occ">${occCount}/${room.capacity} occupied</div>
+                <div class="room-occ">${occCount}/${room.capacity} occupied${reservedCount ? ` · ${reservedCount} reserved` : ''}</div>
               </div>
             `;
           }).join('')}

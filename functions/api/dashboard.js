@@ -67,16 +67,24 @@ export async function onRequestGet({ request, env }) {
   await ensureLedgerRows(env, pgId, thisMonth);
 
   const [
-    totalBeds, occupiedBeds, activeResidents, vacatingNext,
+    totalBeds, occupiedBeds, reservedBeds, activeResidents, vacatingNext,
     rentRows, noticesGiven, maintenanceRooms, advanceRows,
-    rentPaymentsInPeriod, advancePaymentsInPeriod, expensesInPeriod, bookingsInPeriod
+    rentPaymentsInPeriod, advancePaymentsInPeriod, expensesInPeriod, bookingsInPeriod,
+    sharingTypeBreakdown
   ] = await Promise.all([
     env.DB.prepare('SELECT COUNT(*) as c FROM beds b JOIN rooms r ON r.id = b.room_id WHERE r.pg_id = ?').bind(pgId).first(),
+    // Genuinely occupied = resident has actually moved in (join_date has arrived)
     env.DB.prepare(`
       SELECT COUNT(DISTINCT res.bed_id) as c FROM residents res
       JOIN beds b ON b.id = res.bed_id JOIN rooms r ON r.id = b.room_id
-      WHERE r.pg_id = ? AND res.status != 'vacated' AND res.bed_id IS NOT NULL
-    `).bind(pgId).first(),
+      WHERE r.pg_id = ? AND res.status != 'vacated' AND res.bed_id IS NOT NULL AND res.join_date <= ?
+    `).bind(pgId, today).first(),
+    // Reserved = booked but join_date hasn't arrived yet — held, not vacant, not occupied
+    env.DB.prepare(`
+      SELECT COUNT(DISTINCT res.bed_id) as c FROM residents res
+      JOIN beds b ON b.id = res.bed_id JOIN rooms r ON r.id = b.room_id
+      WHERE r.pg_id = ? AND res.status != 'vacated' AND res.bed_id IS NOT NULL AND res.join_date > ?
+    `).bind(pgId, today).first(),
     env.DB.prepare(`SELECT COUNT(*) as c FROM residents WHERE pg_id = ? AND status != 'vacated'`).bind(pgId).first(),
     env.DB.prepare(`
       SELECT COUNT(*) as c FROM residents
@@ -116,6 +124,18 @@ export async function onRequestGet({ request, env }) {
       WHERE res.pg_id = ? AND res.join_date BETWEEN ? AND ?
       ORDER BY res.join_date ASC
     `).bind(pgId, period.from, period.to).all(),
+    // Sharing-type breakdown: how many single-sharing vs double-sharing beds
+    // are occupied right now vs total, for the occupancy card.
+    env.DB.prepare(`
+      SELECT r.sharing_type,
+        COUNT(DISTINCT b.id) as total_beds,
+        COUNT(DISTINCT CASE WHEN res.id IS NOT NULL AND res.status != 'vacated' AND res.join_date <= ? THEN b.id END) as occupied_beds
+      FROM rooms r
+      JOIN beds b ON b.room_id = r.id
+      LEFT JOIN residents res ON res.bed_id = b.id AND res.status != 'vacated'
+      WHERE r.pg_id = ?
+      GROUP BY r.sharing_type
+    `).bind(today, pgId).all(),
   ]);
 
   const rentTotalDue = rentRows.results.reduce((s, r) => s + r.amount_due, 0);
@@ -150,7 +170,9 @@ export async function onRequestGet({ request, env }) {
   return jsonResponse({
     total_beds: totalBeds.c,
     occupied_beds: occupiedBeds.c,
-    vacant_beds: totalBeds.c - occupiedBeds.c,
+    reserved_beds: reservedBeds.c,
+    vacant_beds: totalBeds.c - occupiedBeds.c - reservedBeds.c,
+    sharing_breakdown: sharingTypeBreakdown.results,
     active_residents: activeResidents.c,
     vacating_next_month: vacatingNext.c,
     notices: noticesWithEligibility,

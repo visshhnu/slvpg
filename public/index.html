@@ -370,7 +370,7 @@ function submitEnquiry() {
   fetch('/api/enquiries', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ name, phone, room_type: type, move_in_date: date, occupation: occ, message: msg, pg_id: parseInt(pgId)||1 })
+    body: JSON.stringify({ name, phone, room_type: type, move_in_date: date, occupation: occ, message: msg, pg_id: 1 })
   }).catch(()=>{});
 
   document.getElementById('e-success').style.display = 'block';

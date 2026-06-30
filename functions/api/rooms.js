@@ -16,7 +16,7 @@ export async function onRequestGet({ request, env }) {
       r.needs_maintenance, r.maintenance_note,
       b.id as bed_id, b.bed_label,
       res.id as resident_id, res.name as resident_name, res.phone as resident_phone,
-      res.status as resident_status
+      res.status as resident_status, res.join_date
     FROM rooms r
     JOIN beds b ON b.room_id = r.id
     LEFT JOIN residents res ON res.bed_id = b.id AND res.status != 'vacated'
@@ -28,6 +28,8 @@ export async function onRequestGet({ request, env }) {
         ELSE 99 END,
       r.room_number, b.bed_label
   `).bind(pgId).all();
+
+  const today = new Date().toISOString().slice(0, 10);
 
   const roomsMap = new Map();
   for (const row of results) {
@@ -47,15 +49,22 @@ export async function onRequestGet({ request, env }) {
         beds: [],
       });
     }
+    // A resident with a future join_date has "booked" the bed but hasn't
+    // actually moved in yet — that's a reserved state, distinct from a bed
+    // that's genuinely occupied right now. This affects "beds available"
+    // counts and the bed-map colours on the Rooms screen.
+    const isReserved = !!row.resident_id && row.join_date && row.join_date > today;
     roomsMap.get(row.room_id).beds.push({
       id: row.bed_id,
       label: row.bed_label,
-      occupied: !!row.resident_id,
+      occupied: !!row.resident_id && !isReserved,
+      reserved: isReserved,
       resident: row.resident_id ? {
         id: row.resident_id,
         name: row.resident_name,
         phone: row.resident_phone,
         status: row.resident_status,
+        join_date: row.join_date,
       } : null,
     });
   }

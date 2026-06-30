@@ -115,8 +115,9 @@ function renderRent() {
 }
 
 function renderRentCard(row) {
-  const balance = row.amount_due - row.amount_paid;
-  const hasPaidSomething = row.amount_paid > 0;
+  const notDue = row.status === 'not_due'; // no ledger row this month — rent not due yet (future joiner)
+  const balance = notDue ? 0 : row.amount_due - row.amount_paid;
+  const hasPaidSomething = !notDue && row.amount_paid > 0;
   const isPaid = row.status === 'paid';
 
   return `
@@ -125,12 +126,12 @@ function renderRentCard(row) {
         <div style="min-width:0;">
           <div style="font-size:14px;font-weight:500;">${escapeHtml(row.resident_name)}</div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
-            ${row.floor || ''} ${row.room_number || ''}${row.bed_label ? '-' + row.bed_label : ''} · Due ${fmtDate(row.due_date)}
+            ${row.floor || ''} ${row.room_number || ''}${row.bed_label ? '-' + row.bed_label : ''}${notDue ? ` · Moves in ${fmtDate(row.join_date)}` : ` · Due ${fmtDate(row.due_date)}`}
           </div>
-          <span class="badge ${rentStatusBadgeClass(row.status)}" style="margin-top:4px;">${rentStatusLabel(row.status)}</span>
+          <span class="badge ${notDue ? 'badge-gold' : rentStatusBadgeClass(row.status)}" style="margin-top:4px;">${notDue ? 'No rent due yet' : rentStatusLabel(row.status)}</span>
         </div>
         <div style="text-align:right;flex-shrink:0;">
-          ${isPaid
+          ${notDue ? '' : isPaid
             ? `<div style="font-size:15px;font-weight:500;color:var(--text-success);">${fmtMoney(row.amount_due)}</div>`
             : `<div style="font-size:15px;font-weight:500;color:var(--text-danger);">${fmtMoney(balance)}</div>
                <div style="font-size:10px;color:var(--text-muted);">of ${fmtMoney(row.amount_due)}</div>`
@@ -138,7 +139,7 @@ function renderRentCard(row) {
         </div>
       </div>
 
-      ${renderRentProgressBar(row.amount_paid, row.amount_due, row.status)}
+      ${notDue ? '' : renderRentProgressBar(row.amount_paid, row.amount_due, row.status)}
 
       ${hasPaidSomething ? `
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:2px;">
@@ -146,9 +147,9 @@ function renderRentCard(row) {
           ${!isPaid ? `<span>Balance: <strong style="color:var(--text-danger);">${fmtMoney(balance)}</strong></span>` : ''}
         </div>` : ''}
 
-      ${renderPaymentHistory(row.payments)}
+      ${notDue ? '' : renderPaymentHistory(row.payments)}
 
-      ${!isPaid ? `
+      ${(!notDue && !isPaid) ? `
         <div style="display:flex;gap:6px;margin-top:10px;">
           <button class="btn btn-primary btn-sm" style="flex:1;" onclick="openCollectModal(${row.id}, ${row.resident_id}, '${escapeHtml(row.resident_name)}', ${balance}, ${row.amount_due})">
             Collect ${fmtMoney(balance)}
