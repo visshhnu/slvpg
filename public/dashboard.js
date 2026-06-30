@@ -189,10 +189,6 @@ function renderDashboard(d, enquiries = []) {
           <div class="stat-label">Net (this period)</div>
         </div>
       </div>
-      <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-soft);">
-        <div>Total rent collected + pending right now</div>
-        <div style="font-weight:700;color:var(--ink);">${fmtMoney(d.rent_collected + d.rent_pending)}</div>
-      </div>
     </div>
 
     <div class="card">
@@ -206,10 +202,6 @@ function renderDashboard(d, enquiries = []) {
           <div class="stat-num red">${fmtMoney(d.advance_pending)}</div>
           <div class="stat-label">Advance pending (now)</div>
         </div>
-      </div>
-      <div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-soft);">
-        <div>Total advance collected + pending right now</div>
-        <div style="font-weight:700;color:var(--ink);">${fmtMoney(d.advance_collected + d.advance_pending)}</div>
       </div>
     </div>
       ${categoryEntries.length > 0 ? `
