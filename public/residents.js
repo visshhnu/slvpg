@@ -464,16 +464,6 @@ async function viewReceipt(receiptId) {
         <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Advance Paid at Check-in</div></div><div>${fmtMoney(r.advance_paid_now)}</div></div>
       </div>
 
-      <div class="card-title">Room Condition at Check-in</div>
-      <div class="card" style="margin-bottom:12px;">
-        ${r.room_condition_snapshot.map(f => `
-          <div class="list-row">
-            <div class="list-row-main"><div class="list-row-title" style="font-size:13px;">${escapeHtml(f.item_name)} ×${f.quantity}</div></div>
-            <span class="badge ${f.condition === 'good' ? 'badge-green' : 'badge-red'}">${f.condition}</span>
-          </div>
-        `).join('')}
-      </div>
-
       <div class="card-title">House Rules &amp; Terms</div>
       <div class="card" style="margin-bottom:12px;">
         <pre style="white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.6;margin:0;">${escapeHtml(r.terms_snapshot)}</pre>
