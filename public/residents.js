@@ -65,10 +65,10 @@ function renderResidentCard(r) {
     : 999;
   const checkinUrgent = !r.has_checkin_receipt && joinedDaysAgo > 3;
 
-  // A future booking: join_date hasn't arrived yet. They may have paid a
-  // booking advance, but they don't owe rent yet and "check-in" hasn't
-  // happened — both should read as "scheduled", not "overdue"/"pending".
-  const isFutureBooking = joinedDaysAgo < 0;
+  const today = new Date().toISOString().slice(0, 10);
+  // A future booking: join_date is strictly after today
+  const isFutureBooking = r.join_date && r.join_date > today;
+  const joinedToday = r.join_date === today;
 
   // Border: red only for genuinely overdue rent; amber for softer issues
   const hasIssue = rent && rent.status === 'overdue';
@@ -154,7 +154,7 @@ function renderResidentCard(r) {
           </div>
         </div>
         <div style="font-size:11px;color:var(--ink-soft);white-space:nowrap;flex-shrink:0;">
-          Joined ${fmtDate(r.join_date)}
+          ${isFutureBooking ? `Joins ${fmtDate(r.join_date)}` : joinedToday ? 'Joined today' : `Joined ${fmtDate(r.join_date)}`}
         </div>
       </div>
       <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:7px;">

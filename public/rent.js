@@ -115,51 +115,76 @@ function renderRent() {
 }
 
 function renderRentCard(row) {
-  const notDue = row.status === 'not_due'; // no ledger row this month — rent not due yet (future joiner)
+  const notDue = row.status === 'not_due';
   const balance = notDue ? 0 : row.amount_due - row.amount_paid;
   const hasPaidSomething = !notDue && row.amount_paid > 0;
   const isPaid = row.status === 'paid';
+  const advPaid = row.advance_paid || 0;
+  const advExpected = row.advance_deposit || 0;
+  const advBalance = advExpected - advPaid;
 
   return `
     <div class="card" style="margin-bottom:10px;">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+
+      <!-- Header: name + status -->
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px;">
         <div style="min-width:0;">
-          <div style="font-size:14px;font-weight:500;">${escapeHtml(row.resident_name)}</div>
+          <div style="font-size:14px;font-weight:600;">${escapeHtml(row.resident_name)}</div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
-            ${row.floor || ''} ${row.room_number || ''}${row.bed_label ? '-' + row.bed_label : ''}${notDue ? ` · Moves in ${fmtDate(row.join_date)}` : ` · Due ${fmtDate(row.due_date)}`}
+            ${row.floor || ''} ${row.room_number || ''}${row.bed_label ? '-' + row.bed_label : ''}
+            · Joined ${fmtDate(row.join_date)}
+            ${notDue ? ' · <em>moves in</em>' : ` · Due ${fmtDate(row.due_date)}`}
           </div>
-          <span class="badge ${notDue ? 'badge-gold' : rentStatusBadgeClass(row.status)}" style="margin-top:4px;">${notDue ? 'No rent due yet' : rentStatusLabel(row.status)}</span>
         </div>
-        <div style="text-align:right;flex-shrink:0;">
-          ${notDue ? '' : isPaid
-            ? `<div style="font-size:15px;font-weight:500;color:var(--text-success);">${fmtMoney(row.amount_due)}</div>`
-            : `<div style="font-size:15px;font-weight:500;color:var(--text-danger);">${fmtMoney(balance)}</div>
-               <div style="font-size:10px;color:var(--text-muted);">of ${fmtMoney(row.amount_due)}</div>`
-          }
-        </div>
+        <span class="badge ${notDue ? 'badge-gold' : rentStatusBadgeClass(row.status)}">${notDue ? 'No rent due yet' : rentStatusLabel(row.status)}</span>
       </div>
 
-      ${notDue ? '' : renderRentProgressBar(row.amount_paid, row.amount_due, row.status)}
+      <!-- Rent row -->
+      ${notDue ? `
+        <div style="font-size:12px;color:var(--text-muted);padding:6px 0;border-top:1px solid var(--border);">
+          Rent will be billed from ${fmtDate(row.join_date)}
+        </div>
+      ` : `
+        <div style="padding:8px 0;border-top:1px solid var(--border);">
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;font-weight:600;margin-bottom:4px;">
+            <span style="color:var(--text-muted);">RENT</span>
+            <span>${isPaid
+              ? `<span style="color:var(--text-success);">${fmtMoney(row.amount_due)} paid ✓</span>`
+              : `<span style="color:var(--text-danger);">${fmtMoney(balance)} remaining</span> <span style="color:var(--text-muted);font-weight:400;">of ${fmtMoney(row.amount_due)}</span>`
+            }</span>
+          </div>
+          ${renderRentProgressBar(row.amount_paid, row.amount_due, row.status)}
+          ${hasPaidSomething ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Paid so far: <strong style="color:var(--text-success);">${fmtMoney(row.amount_paid)}</strong></div>` : ''}
+          ${renderPaymentHistory(row.payments)}
+          ${!isPaid ? `
+            <div style="display:flex;gap:6px;margin-top:8px;">
+              <button class="btn btn-primary btn-sm" style="flex:1;" onclick="openCollectModal(${row.id}, ${row.resident_id}, '${escapeHtml(row.resident_name)}', ${balance}, ${row.amount_due})">
+                Collect rent ${fmtMoney(balance)}
+              </button>
+              <button class="btn btn-sm" onclick="openPartPaymentModal(${row.id}, ${row.resident_id}, '${escapeHtml(row.resident_name)}', ${balance}, ${row.amount_due})">
+                Part payment
+              </button>
+            </div>` : ''}
+        </div>
+      `}
 
-      ${hasPaidSomething ? `
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:2px;">
-          <span>Paid so far: <strong style="color:var(--text-success);">${fmtMoney(row.amount_paid)}</strong></span>
-          ${!isPaid ? `<span>Balance: <strong style="color:var(--text-danger);">${fmtMoney(balance)}</strong></span>` : ''}
-        </div>` : ''}
+      <!-- Advance row — always visible regardless of rent status -->
+      ${advExpected > 0 ? `
+        <div style="padding:8px 0;border-top:1px solid var(--border);">
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;font-weight:600;margin-bottom:4px;">
+            <span style="color:var(--text-muted);">ADVANCE DEPOSIT</span>
+            <span>${advBalance <= 0
+              ? `<span style="color:var(--text-success);">${fmtMoney(advPaid)} paid ✓</span>`
+              : `<span style="color:var(--text-danger);">${fmtMoney(advBalance)} pending</span> <span style="color:var(--text-muted);font-weight:400;">of ${fmtMoney(advExpected)}</span>`
+            }</span>
+          </div>
+          ${advBalance > 0 ? `
+            <button class="btn btn-sm" style="margin-top:4px;font-size:11.5px;" onclick="openAdvanceModal(${row.resident_id}, '${escapeHtml(row.resident_name)}', ${advBalance})">
+              + Collect advance instalment
+            </button>` : ''}
+        </div>
+      ` : ''}
 
-      ${notDue ? '' : renderPaymentHistory(row.payments)}
-
-      ${(!notDue && !isPaid) ? `
-        <div style="display:flex;gap:6px;margin-top:10px;">
-          <button class="btn btn-primary btn-sm" style="flex:1;" onclick="openCollectModal(${row.id}, ${row.resident_id}, '${escapeHtml(row.resident_name)}', ${balance}, ${row.amount_due})">
-            Collect ${fmtMoney(balance)}
-          </button>
-          <button class="btn btn-sm" onclick="openPartPaymentModal(${row.id}, ${row.resident_id}, '${escapeHtml(row.resident_name)}', ${balance}, ${row.amount_due})">
-            Part payment
-          </button>
-        </div>` : ''}
-
-      ${renderAdvanceRow(row)}
     </div>`;
 }
 
