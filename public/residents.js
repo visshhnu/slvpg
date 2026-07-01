@@ -164,7 +164,10 @@ function renderResidentCard(r) {
     </div>`;
 }
 
+let currentOpenResidentId = null;
+
 async function openResidentDetail(id) {
+  currentOpenResidentId = id;
   try {
     const r = await api(`/residents/${id}`);
     showResidentDetailModal(r);
@@ -245,7 +248,12 @@ function showResidentDetailModal(r) {
             <div class="list-row-title">${fmtMoney(p.amount)} <span style="color:var(--ink-soft);font-weight:500;font-size:12px;">(${p.payment_type})</span></div>
             <div class="list-row-sub">${fmtDate(p.payment_date)} · ${p.payment_mode} · by ${escapeHtml(p.collected_by || '—')}</div>
           </div>
-          <button class="btn btn-outline btn-sm" onclick="openFlagCorrectionModal('payment', ${p.id})">Flag Issue</button>
+          <div style="display:flex;gap:6px;">
+            ${state.staff.role === 'admin' || state.staff.role === 'pg_manager'
+              ? `<button class="btn btn-outline btn-sm" style="font-size:11px;" onclick="openEditPaymentModal(${p.id}, ${p.amount}, '${p.payment_type}', '${p.payment_date}', '${p.payment_mode || 'cash'}')">Edit</button>`
+              : `<button class="btn btn-outline btn-sm" onclick="openFlagCorrectionModal('payment', ${p.id})">Flag Issue</button>`
+            }
+          </div>
         </div>
       `).join('')
     }
@@ -493,6 +501,72 @@ function printReceipt() {
   win.document.close();
   win.focus();
   setTimeout(() => win.print(), 300);
+}
+
+// ---- Edit payment (admin / pg_manager only) ----
+function openEditPaymentModal(paymentId, amount, type, date, mode) {
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Edit Payment</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <label>Amount</label>
+    <input id="ep-amount" type="number" min="0" value="${amount}">
+    <label>Payment type</label>
+    <select id="ep-type">
+      <option value="rent" ${type === 'rent' ? 'selected' : ''}>Rent</option>
+      <option value="advance" ${type === 'advance' ? 'selected' : ''}>Advance</option>
+      <option value="refund" ${type === 'refund' ? 'selected' : ''}>Refund</option>
+    </select>
+    <label>Payment mode</label>
+    <select id="ep-mode">
+      <option value="cash" ${mode === 'cash' ? 'selected' : ''}>Cash</option>
+      <option value="upi" ${mode === 'upi' ? 'selected' : ''}>UPI</option>
+      <option value="bank_transfer" ${mode === 'bank_transfer' ? 'selected' : ''}>Bank Transfer</option>
+      <option value="cheque" ${mode === 'cheque' ? 'selected' : ''}>Cheque</option>
+    </select>
+    <label>Date</label>
+    <input id="ep-date" type="date" value="${date}">
+    <label>Reason for edit <span style="color:var(--red);font-size:11px;">* required</span></label>
+    <input id="ep-note" placeholder="e.g. Wrong type entered — correcting to advance">
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button class="btn btn-primary" style="flex:1;" onclick="submitEditPayment(${paymentId})">Save</button>
+      <button class="btn btn-danger btn-outline" onclick="submitDeletePayment(${paymentId})">Delete</button>
+    </div>
+  `);
+}
+
+async function submitEditPayment(paymentId) {
+  const amount = parseInt(document.getElementById('ep-amount').value, 10);
+  const payment_type = document.getElementById('ep-type').value;
+  const payment_mode = document.getElementById('ep-mode').value;
+  const payment_date = document.getElementById('ep-date').value;
+  const note = document.getElementById('ep-note').value.trim();
+
+  if (!note) { showToast('Reason is required.', 'error'); return; }
+  if (isNaN(amount) || amount < 0) { showToast('Enter a valid amount (0 to delete).', 'error'); return; }
+
+  try {
+    await api(`/payments/${paymentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ amount, payment_type, payment_mode, payment_date, reference_note: note }),
+    });
+    closeModal();
+    showToast('Payment updated.', 'success');
+    if (currentOpenResidentId) openResidentDetail(currentOpenResidentId);
+  } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function submitDeletePayment(paymentId) {
+  const note = document.getElementById('ep-note').value.trim();
+  if (!note) { showToast('Reason is required before deleting.', 'error'); return; }
+  if (!confirm('Delete this payment permanently?')) return;
+  try {
+    await api(`/payments/${paymentId}`, { method: 'DELETE' });
+    closeModal();
+    showToast('Payment deleted.', 'success');
+    if (currentOpenResidentId) openResidentDetail(currentOpenResidentId);
+  } catch (e) { showToast(e.message, 'error'); }
 }
 
 // ---- Flag a correction (staff-facing, on payments/expenses) ----
