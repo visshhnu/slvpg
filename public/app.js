@@ -187,6 +187,7 @@ function switchTab(tab) {
     rent: loadRent,
     expenses: loadExpenses,
     settings: loadSettings,
+    reports: loadReports,
   };
   loaders[tab]();
 }

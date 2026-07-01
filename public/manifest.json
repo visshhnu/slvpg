@@ -1,8 +1,9 @@
 {
-  "name": "SVPG Manager",
-  "short_name": "SVPG Manager",
-  "description": "Multi-PG management - rooms, residents, rent and expenses",
-  "start_url": "/",
+  "name": "SLV PG Manager",
+  "short_name": "SLV PG",
+  "description": "Manage rooms, residents, rent and expenses for Sri Lakshmi Venkateshwara PG",
+  "start_url": "/manage.html",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#FAF6EE",
   "theme_color": "#0F2A4A",
@@ -14,5 +15,7 @@
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "categories": ["business", "productivity"],
+  "lang": "en-IN"
 }
