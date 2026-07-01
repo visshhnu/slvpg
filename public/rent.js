@@ -96,14 +96,22 @@ function renderRent() {
     </div>
 
     <div class="card">
+      <div class="card-title" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft);">Rent — ${monthLabel(summary.month)}</div>
       <div class="stat-grid">
-        <div class="stat-box"><div class="stat-num green">${fmtMoney(summary.total_paid)}</div><div class="stat-label">Collected</div></div>
-        <div class="stat-box"><div class="stat-num red">${fmtMoney(summary.total_pending)}</div><div class="stat-label">Still pending</div></div>
+        <div class="stat-box"><div class="stat-num green">${fmtMoney(summary.total_paid)}</div><div class="stat-label">Rent collected</div></div>
+        <div class="stat-box"><div class="stat-num red">${fmtMoney(summary.total_pending)}</div><div class="stat-label">Rent pending</div></div>
       </div>
-      <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+        <div class="card-title" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft);margin-bottom:6px;">Advance Deposits (all residents)</div>
+        <div class="stat-grid">
+          <div class="stat-box"><div class="stat-num green">${fmtMoney(summary.advance_total_paid)}</div><div class="stat-label">Advance collected</div></div>
+          <div class="stat-box"><div class="stat-num red">${fmtMoney(summary.advance_total_expected - summary.advance_total_paid)}</div><div class="stat-label">Advance pending</div></div>
+        </div>
+      </div>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
         ${summary.overdue_count > 0 ? `<span class="badge badge-red">${summary.overdue_count} overdue</span>` : ''}
         ${summary.partial_count > 0 ? `<span class="badge badge-amber">${summary.partial_count} partial</span>` : ''}
-        ${summary.overdue_count === 0 && summary.partial_count === 0 ? `<span class="badge badge-green">All payments on track</span>` : ''}
+        ${summary.overdue_count === 0 && summary.partial_count === 0 ? `<span class="badge badge-green">All rent payments on track</span>` : ''}
       </div>
     </div>
 

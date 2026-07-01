@@ -76,6 +76,8 @@ export async function onRequestGet({ request, env }) {
     total_pending: billedRows.reduce((s, r) => s + (r.amount_due - r.amount_paid), 0),
     overdue_count: enriched.filter(r => r.status === 'overdue').length,
     partial_count: enriched.filter(r => r.status === 'partial').length,
+    advance_total_expected: enriched.reduce((s, r) => s + (r.advance_deposit || 0), 0),
+    advance_total_paid: enriched.reduce((s, r) => s + (r.advance_paid || 0), 0),
   };
 
   return jsonResponse({ summary, rows: enriched });
