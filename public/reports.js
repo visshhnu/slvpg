@@ -1,319 +1,550 @@
 // public/reports.js
-// Reports screen — period-based summary reports with print/PDF support.
-// Covers: rent collected vs pending, advance status, expenses, net income,
-// resident-wise breakdown. Supports Today, Yesterday, 7 Days, This Month,
-// 3 Months, and Custom date range.
+// Reports — landing menu with separate report types, each with its own
+// period selector and targeted data fetch.
 
-const REPORT_RANGES = [
-  { key: 'today', label: 'Today' },
-  { key: 'yesterday', label: 'Yesterday' },
-  { key: '7d', label: '7 Days' },
+// ─────────────────────────────────────────
+// State
+// ─────────────────────────────────────────
+let activeReport = null; // null = show landing menu
+let reportPeriod = { key: 'this_month', from: null, to: null };
+
+const REPORT_PERIODS = [
+  { key: 'today',      label: 'Today' },
+  { key: 'yesterday',  label: 'Yesterday' },
+  { key: '7d',         label: '7 Days' },
   { key: 'this_month', label: 'This Month' },
-  { key: '3m', label: '3 Months' },
-  { key: 'custom', label: 'Custom' },
+  { key: '3m',         label: '3 Months' },
+  { key: 'custom',     label: 'Custom' },
 ];
 
-let reportRange = { key: 'this_month', from: null, to: null };
-let reportData = null;
+const REPORT_TYPES = [
+  { key: 'rent',       icon: '₹', title: 'Rent Collection',     desc: 'Who paid, who is pending, balance per resident' },
+  { key: 'advance',    icon: '🔒', title: 'Advance Deposits',    desc: 'Booking advance paid and pending per resident' },
+  { key: 'payments',   icon: '📋', title: 'Payment History',     desc: 'All transactions received in the selected period' },
+  { key: 'expenses',   icon: '💸', title: 'Expenses',            desc: 'All outgoing expenses by category' },
+  { key: 'residents',  icon: '👥', title: 'Resident List',       desc: 'Active residents, rooms, join dates, rent amounts' },
+  { key: 'occupancy',  icon: '🏠', title: 'Occupancy',           desc: 'Room and bed status — occupied, reserved, vacant' },
+  { key: 'summary',    icon: '📊', title: 'Monthly Summary',     desc: 'Full income vs expenses overview for the period' },
+];
 
+// ─────────────────────────────────────────
+// Entry point
+// ─────────────────────────────────────────
 async function loadReports() {
-  const el = document.getElementById('screen-reports');
-  if (!state.currentPgId) {
-    el.innerHTML = `<div class="card"><div class="empty-state"><div class="empty-state-title">No PG selected</div></div></div>`;
-    return;
-  }
-  el.innerHTML = renderReportShell();
-  await fetchAndRenderReport();
+  activeReport = null;
+  renderReportsLanding();
 }
 
-function renderReportShell() {
-  const today = new Date().toISOString().slice(0, 10);
-  return `
-    <div class="card" style="margin-bottom:10px;">
+function renderReportsLanding() {
+  const el = document.getElementById('screen-reports');
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:12px;">
       <div class="card-title">Reports</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
-        ${REPORT_RANGES.map(r => `
-          <button class="btn btn-sm ${reportRange.key === r.key ? 'btn-primary' : 'btn-outline'}"
-            style="font-size:11.5px;padding:6px 10px;" onclick="setReportRange('${r.key}')">${r.label}</button>
-        `).join('')}
-      </div>
-      ${reportRange.key === 'custom' ? `
-        <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
-          <input type="date" id="report-from" value="${reportRange.from || today}"
-            onchange="setReportCustomDate('from', this.value)" style="flex:1;">
-          <span style="color:var(--ink-soft);font-size:12px;">to</span>
-          <input type="date" id="report-to" value="${reportRange.to || today}"
-            onchange="setReportCustomDate('to', this.value)" style="flex:1;">
-        </div>
-      ` : ''}
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0;">Select a report type to view and print.</p>
     </div>
-    <div id="report-body"><div class="card"><div class="empty-state">Loading…</div></div></div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      ${REPORT_TYPES.map(r => `
+        <button onclick="openReport('${r.key}')" style="
+          background:var(--card);border:1.5px solid var(--border);border-radius:12px;
+          padding:14px;text-align:left;cursor:pointer;display:flex;align-items:center;gap:14px;">
+          <div style="font-size:22px;width:36px;text-align:center;">${r.icon}</div>
+          <div>
+            <div style="font-weight:700;font-size:14px;color:var(--navy);">${r.title}</div>
+            <div style="font-size:11.5px;color:var(--ink-soft);margin-top:2px;">${r.desc}</div>
+          </div>
+        </button>
+      `).join('')}
+    </div>
   `;
 }
 
-function setReportRange(key) {
+// ─────────────────────────────────────────
+// Open a specific report
+// ─────────────────────────────────────────
+function openReport(key) {
+  activeReport = key;
+  reportPeriod = { key: 'this_month', from: null, to: null };
+  renderReportScreen(key);
+}
+
+function renderReportScreen(key) {
+  const type = REPORT_TYPES.find(r => r.key === key);
+  const el = document.getElementById('screen-reports');
   const today = new Date().toISOString().slice(0, 10);
-  if (key === 'custom') {
-    reportRange = { key: 'custom', from: reportRange.from || today, to: reportRange.to || today };
-  } else {
-    reportRange = { key, from: null, to: null };
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+      <button onclick="loadReports()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--navy);">←</button>
+      <div>
+        <div style="font-weight:700;font-size:15px;">${type.icon} ${type.title}</div>
+        <div style="font-size:11px;color:var(--ink-soft);">${type.desc}</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:10px;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${REPORT_PERIODS.map(p => `
+          <button class="btn btn-sm ${reportPeriod.key === p.key ? 'btn-primary' : 'btn-outline'}"
+            style="font-size:11px;padding:5px 10px;" onclick="changeReportPeriod('${p.key}')">${p.label}</button>
+        `).join('')}
+      </div>
+      <div id="report-custom-dates" style="display:${reportPeriod.key === 'custom' ? 'flex' : 'none'};gap:8px;margin-top:8px;align-items:center;">
+        <input type="date" id="report-from" value="${today}" onchange="updateCustomDate('from',this.value)" style="flex:1;">
+        <span style="color:var(--ink-soft);font-size:12px;">to</span>
+        <input type="date" id="report-to" value="${today}" onchange="updateCustomDate('to',this.value)" style="flex:1;">
+      </div>
+    </div>
+
+    <div id="report-content">
+      <div class="card"><div class="empty-state">Loading…</div></div>
+    </div>
+  `;
+  fetchReport(key);
+}
+
+function changeReportPeriod(key) {
+  const today = new Date().toISOString().slice(0, 10);
+  reportPeriod = key === 'custom'
+    ? { key: 'custom', from: reportPeriod.from || today, to: reportPeriod.to || today }
+    : { key, from: null, to: null };
+  renderReportScreen(activeReport);
+}
+
+function updateCustomDate(which, value) {
+  reportPeriod = { ...reportPeriod, key: 'custom', [which]: value };
+  if (reportPeriod.from && reportPeriod.to) fetchReport(activeReport);
+}
+
+// ─────────────────────────────────────────
+// Resolve period → date range
+// ─────────────────────────────────────────
+function resolvePeriodDates() {
+  const today = new Date().toISOString().slice(0, 10);
+  const key = reportPeriod.key;
+  if (key === 'custom') return { from: reportPeriod.from || today, to: reportPeriod.to || today };
+  if (key === 'today') return { from: today, to: today };
+  if (key === 'yesterday') {
+    const y = new Date(); y.setDate(y.getDate() - 1);
+    const ys = y.toISOString().slice(0, 10);
+    return { from: ys, to: ys };
   }
-  loadReports();
-}
-
-function setReportCustomDate(which, value) {
-  reportRange = { ...reportRange, key: 'custom', [which]: value };
-  if (reportRange.from && reportRange.to) fetchAndRenderReport();
-}
-
-function buildReportApiPath() {
-  let path = `/dashboard?range=${reportRange.key}`;
-  if (reportRange.key === 'custom' && reportRange.from && reportRange.to) {
-    path += `&from=${reportRange.from}&to=${reportRange.to}`;
+  if (key === '7d') {
+    const f = new Date(); f.setDate(f.getDate() - 6);
+    return { from: f.toISOString().slice(0, 10), to: today };
   }
-  return path;
+  if (key === '3m') {
+    const f = new Date(); f.setMonth(f.getMonth() - 3);
+    return { from: f.toISOString().slice(0, 10), to: today };
+  }
+  // this_month default
+  return { from: today.slice(0, 7) + '-01', to: today };
 }
 
-async function fetchAndRenderReport() {
-  const el = document.getElementById('report-body');
+function periodLabel() {
+  const p = REPORT_PERIODS.find(p => p.key === reportPeriod.key);
+  if (reportPeriod.key === 'custom') return `${reportPeriod.from} to ${reportPeriod.to}`;
+  return p?.label || 'This Month';
+}
+
+// ─────────────────────────────────────────
+// Fetch and render the right report
+// ─────────────────────────────────────────
+async function fetchReport(key) {
+  const el = document.getElementById('report-content');
   if (!el) return;
   el.innerHTML = `<div class="card"><div class="empty-state">Loading…</div></div>`;
   try {
-    const [dash, rentData, expData] = await Promise.all([
-      api(buildReportApiPath()),
-      api(`/rent?month=${new Date().toISOString().slice(0, 7)}`),
-      api(`/expenses`),
-    ]);
-    reportData = { dash, rentData, expData };
-    el.innerHTML = renderReportBody(dash, rentData, expData);
+    const { from, to } = resolvePeriodDates();
+    const month = from.slice(0, 7); // dominant month in range
+
+    switch (key) {
+      case 'rent':      await renderRentReport(el, month); break;
+      case 'advance':   await renderAdvanceReport(el); break;
+      case 'payments':  await renderPaymentsReport(el, from, to); break;
+      case 'expenses':  await renderExpensesReport(el, month, from, to); break;
+      case 'residents': await renderResidentsReport(el); break;
+      case 'occupancy': await renderOccupancyReport(el); break;
+      case 'summary':   await renderSummaryReport(el, from, to); break;
+    }
   } catch (e) {
-    el.innerHTML = `<div class="card"><div class="empty-state-title">Error loading report</div><div>${e.message}</div></div>`;
+    el.innerHTML = `<div class="card"><div class="empty-state-title">Error</div><div>${e.message}</div></div>`;
   }
 }
 
-function renderReportBody(d, rentData, expData) {
-  const period = d.period || { label: 'This Month' };
-  const advancePending = d.advance_pending || 0;
-  const advanceCollected = d.advance_collected || 0;
-
-  // Resident breakdown from rent tab rows
-  const rows = rentData.rows || [];
+// ─────────────────────────────────────────
+// 1. RENT COLLECTION
+// ─────────────────────────────────────────
+async function renderRentReport(el, month) {
+  const data = await api(`/rent?month=${month}`);
+  const rows = data.rows || [];
   const billed = rows.filter(r => r.id);
   const notDue = rows.filter(r => !r.id);
+  const s = data.summary;
 
-  // Expenses for this period
-  const expRows = (expData.rows || []).filter(e => {
-    const from = d.period?.from || new Date().toISOString().slice(0, 8) + '01';
-    const to = d.period?.to || new Date().toISOString().slice(0, 10);
-    return e.expense_date >= from && e.expense_date <= to;
-  });
-
-  return `
-    <!-- Summary cards -->
-    <div class="card" style="margin-bottom:10px;">
-      <div class="card-title">Summary — ${escapeHtml(period.label)}</div>
-
-      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft);margin:8px 0 4px;">Rent</div>
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:8px;">
+      <div class="card-title">Rent — ${monthLabel(month)}</div>
       <div class="stat-grid">
-        <div class="stat-box"><div class="stat-num green">${fmtMoney(d.rent_collected)}</div><div class="stat-label">Collected</div></div>
-        <div class="stat-box"><div class="stat-num red">${fmtMoney(d.rent_pending)}</div><div class="stat-label">Pending now</div></div>
-      </div>
-
-      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft);margin:12px 0 4px;">Advance Deposits</div>
-      <div class="stat-grid">
-        <div class="stat-box"><div class="stat-num green">${fmtMoney(advanceCollected)}</div><div class="stat-label">Collected</div></div>
-        <div class="stat-box"><div class="stat-num red">${fmtMoney(advancePending)}</div><div class="stat-label">Pending now</div></div>
-      </div>
-
-      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft);margin:12px 0 4px;">Expenses</div>
-      <div class="stat-grid">
-        <div class="stat-box"><div class="stat-num">${fmtMoney(d.expenses_this_month)}</div><div class="stat-label">Total expenses</div></div>
-        <div class="stat-box"><div class="stat-num ${d.net_this_month >= 0 ? 'green' : 'red'}">${fmtMoney(d.net_this_month)}</div><div class="stat-label">Net (rent − expenses)</div></div>
+        <div class="stat-box"><div class="stat-num green">${fmtMoney(s.total_paid)}</div><div class="stat-label">Collected</div></div>
+        <div class="stat-box"><div class="stat-num red">${fmtMoney(s.total_pending)}</div><div class="stat-label">Pending</div></div>
+        <div class="stat-box"><div class="stat-num">${fmtMoney(s.total_due)}</div><div class="stat-label">Total billed</div></div>
+        <div class="stat-box"><div class="stat-num red">${s.overdue_count}</div><div class="stat-label">Overdue</div></div>
       </div>
     </div>
 
-    <!-- Rent per resident -->
-    <div class="card" style="margin-bottom:10px;">
-      <div class="card-title">Rent — Per Resident (${rentData.summary?.month || ''})</div>
-      ${billed.length === 0 ? `<div class="empty-state">No billed residents this month.</div>` :
-        billed.map(r => `
-          <div class="list-row" style="padding:8px 0;border-bottom:1px solid var(--border);">
+    ${billed.map(r => `
+      <div class="card" style="margin-bottom:6px;padding:10px 12px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div>
+            <div style="font-weight:600;font-size:13.5px;">${escapeHtml(r.resident_name)}</div>
+            <div style="font-size:11px;color:var(--ink-soft);">${r.floor || ''} ${r.room_number || ''}${r.bed_label ? '-'+r.bed_label : ''} · Joined ${fmtDate(r.join_date)}</div>
+            <span class="badge ${rentStatusBadgeClass(r.status)} " style="margin-top:4px;">${rentStatusLabel(r.status)}</span>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-weight:700;font-size:13px;color:${r.amount_paid>0?'var(--green)':'var(--ink-soft)'};">${fmtMoney(r.amount_paid)} paid</div>
+            ${r.amount_paid < r.amount_due ? `<div style="font-size:11.5px;color:var(--red);">${fmtMoney(r.amount_due - r.amount_paid)} due</div>` : ''}
+            <div style="font-size:10.5px;color:var(--ink-soft);">rent: ${fmtMoney(r.amount_due)}</div>
+          </div>
+        </div>
+      </div>
+    `).join('')}
+
+    ${notDue.length > 0 ? `
+      <div class="card" style="margin-top:8px;">
+        <div class="card-title" style="font-size:11px;text-transform:uppercase;color:var(--ink-soft);">No rent due yet — future move-ins</div>
+        ${notDue.map(r => `
+          <div class="list-row">
             <div class="list-row-main">
               <div class="list-row-title">${escapeHtml(r.resident_name)}</div>
-              <div class="list-row-sub">${r.floor || ''} ${r.room_number || ''}${r.bed_label ? '-' + r.bed_label : ''} · Joined ${fmtDate(r.join_date)}</div>
-              <div style="margin-top:3px;">
-                <span class="badge ${rentStatusBadgeClass(r.status)}">${rentStatusLabel(r.status)}</span>
-              </div>
+              <div class="list-row-sub">Joins ${fmtDate(r.join_date)}</div>
             </div>
-            <div style="text-align:right;font-size:12.5px;">
-              <div style="color:var(--green);font-weight:600;">${fmtMoney(r.amount_paid)} paid</div>
-              ${r.amount_paid < r.amount_due ? `<div style="color:var(--red);">${fmtMoney(r.amount_due - r.amount_paid)} due</div>` : ''}
-              <div style="color:var(--ink-soft);font-size:10.5px;">of ${fmtMoney(r.amount_due)}</div>
-            </div>
-          </div>
-        `).join('')
-      }
-      ${notDue.length > 0 ? `
-        <div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);">
-          <div style="font-size:11px;color:var(--ink-soft);margin-bottom:6px;">Future joiners — advance only, no rent due yet</div>
-          ${notDue.map(r => `
-            <div class="list-row" style="padding:6px 0;">
-              <div class="list-row-main">
-                <div class="list-row-title">${escapeHtml(r.resident_name)}</div>
-                <div class="list-row-sub">Joins ${fmtDate(r.join_date)}</div>
-              </div>
-              <div style="text-align:right;font-size:12px;">
-                <div style="color:var(--green);">Adv ${fmtMoney(r.advance_paid || 0)}</div>
-                ${(r.advance_deposit - r.advance_paid) > 0 ? `<div style="color:var(--red);">₹${fmtMoney(r.advance_deposit - r.advance_paid)} pending</div>` : ''}
-              </div>
-            </div>
-          `).join('')}
-        </div>
-      ` : ''}
-    </div>
-
-    <!-- Expenses breakdown -->
-    ${expRows.length > 0 ? `
-      <div class="card" style="margin-bottom:10px;">
-        <div class="card-title">Expenses — ${escapeHtml(period.label)}</div>
-        ${Object.entries(
-          expRows.reduce((acc, e) => { acc[e.category] = (acc[e.category] || 0) + e.amount; return acc; }, {})
-        ).map(([cat, total]) => `
-          <div class="list-row">
-            <div class="list-row-main"><div class="list-row-title">${escapeHtml(cat)}</div></div>
-            <div style="font-weight:600;">${fmtMoney(total)}</div>
+            <span class="badge badge-gold">Not yet billed</span>
           </div>
         `).join('')}
-        <div class="list-row" style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px;">
-          <div class="list-row-main"><div class="list-row-title" style="font-weight:700;">Total</div></div>
-          <div style="font-weight:700;">${fmtMoney(expRows.reduce((s, e) => s + e.amount, 0))}</div>
-        </div>
       </div>
     ` : ''}
 
-    <!-- Print button -->
-    <button class="btn btn-primary" style="width:100%;margin-bottom:20px;" onclick="printReport()">
-      Print / Save as PDF
-    </button>
+    <button class="btn btn-primary" style="width:100%;margin-top:12px;" onclick="printRentReport('${month}')">Print / Save as PDF</button>
   `;
 }
 
-function printReport() {
-  if (!reportData) return;
-  const { dash, rentData, expData } = reportData;
-  const period = dash.period || { label: 'This Month', from: '', to: '' };
+// ─────────────────────────────────────────
+// 2. ADVANCE DEPOSITS
+// ─────────────────────────────────────────
+async function renderAdvanceReport(el) {
+  const res = await api('/residents');
+  const active = (res.residents || res).filter(r => r.status !== 'vacated');
+  const totalExp = active.reduce((s, r) => s + (r.advance_deposit || 0), 0);
+  const totalPaid = active.reduce((s, r) => s + (r.advance_paid || 0), 0);
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:8px;">
+      <div class="card-title">Advance Deposits — All Active Residents</div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-num green">${fmtMoney(totalPaid)}</div><div class="stat-label">Total collected</div></div>
+        <div class="stat-box"><div class="stat-num red">${fmtMoney(totalExp - totalPaid)}</div><div class="stat-label">Total pending</div></div>
+        <div class="stat-box"><div class="stat-num">${fmtMoney(totalExp)}</div><div class="stat-label">Total expected</div></div>
+        <div class="stat-box"><div class="stat-num">${active.length}</div><div class="stat-label">Active residents</div></div>
+      </div>
+    </div>
+
+    ${active.sort((a,b) => (b.advance_deposit - b.advance_paid) - (a.advance_deposit - a.advance_paid)).map(r => {
+      const bal = (r.advance_deposit || 0) - (r.advance_paid || 0);
+      return `
+        <div class="card" style="margin-bottom:6px;padding:10px 12px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+            <div>
+              <div style="font-weight:600;font-size:13.5px;">${escapeHtml(r.name)}</div>
+              <div style="font-size:11px;color:var(--ink-soft);">${r.floor || ''} ${r.room_number || ''}${r.bed_label ? '-'+r.bed_label : ''} · ${r.join_date > new Date().toISOString().slice(0,10) ? 'Joins '+fmtDate(r.join_date) : 'Joined '+fmtDate(r.join_date)}</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:13px;font-weight:700;color:${bal>0?'var(--red)':'var(--green)'};">
+                ${bal > 0 ? fmtMoney(bal)+' pending' : 'Paid ✓'}
+              </div>
+              <div style="font-size:10.5px;color:var(--ink-soft);">${fmtMoney(r.advance_paid||0)} of ${fmtMoney(r.advance_deposit||0)}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('')}
+
+    <button class="btn btn-primary" style="width:100%;margin-top:12px;" onclick="printGenericReport()">Print / Save as PDF</button>
+  `;
+}
+
+// ─────────────────────────────────────────
+// 3. PAYMENT HISTORY
+// ─────────────────────────────────────────
+async function renderPaymentsReport(el, from, to) {
+  const data = await api(`/payments?from=${from}&to=${to}`).catch(() => null);
+  // Payments API may not support date filter — use dashboard advance+rent
+  const dash = await api(`/dashboard?range=${reportPeriod.key}${reportPeriod.key==='custom'?`&from=${from}&to=${to}`:''}`);
+  // Fall back to per-resident data from rent tab
+  const currentMonth = from.slice(0, 7);
+  const rentData = await api(`/rent?month=${currentMonth}`);
+  const allPayments = [];
+  for (const row of rentData.rows || []) {
+    for (const p of row.payments || []) {
+      if (p.payment_date >= from && p.payment_date <= to) {
+        allPayments.push({ ...p, resident_name: row.resident_name, room: `${row.floor||''} ${row.room_number||''}${row.bed_label?'-'+row.bed_label:''}` });
+      }
+    }
+  }
+  allPayments.sort((a, b) => b.payment_date.localeCompare(a.payment_date));
+  const total = allPayments.reduce((s, p) => s + p.amount, 0);
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:8px;">
+      <div class="card-title">Payments — ${periodLabel()}</div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-num green">${fmtMoney(total)}</div><div class="stat-label">Total received</div></div>
+        <div class="stat-box"><div class="stat-num">${allPayments.length}</div><div class="stat-label">Transactions</div></div>
+      </div>
+    </div>
+
+    ${allPayments.length === 0
+      ? `<div class="card"><div class="empty-state">No payments recorded in this period.</div></div>`
+      : allPayments.map(p => `
+        <div class="list-row" style="background:var(--card);border-radius:8px;padding:10px 12px;margin-bottom:6px;border:1px solid var(--border);">
+          <div class="list-row-main">
+            <div class="list-row-title">${escapeHtml(p.resident_name)}</div>
+            <div class="list-row-sub">${p.room} · ${fmtDate(p.payment_date)} · ${p.payment_mode || 'cash'} · by ${escapeHtml(p.collected_by || '—')}</div>
+            <span class="badge ${p.payment_type === 'rent' ? 'badge-green' : p.payment_type === 'advance' ? 'badge-amber' : 'badge-gray'}">${p.payment_type}</span>
+          </div>
+          <div style="font-weight:700;font-size:14px;color:var(--green);">+${fmtMoney(p.amount)}</div>
+        </div>
+      `).join('')
+    }
+
+    <button class="btn btn-primary" style="width:100%;margin-top:12px;" onclick="printGenericReport()">Print / Save as PDF</button>
+  `;
+}
+
+// ─────────────────────────────────────────
+// 4. EXPENSES
+// ─────────────────────────────────────────
+async function renderExpensesReport(el, month, from, to) {
+  const data = await api(`/expenses?month=${month}`);
+  const rows = (data.rows || []).filter(e => e.expense_date >= from && e.expense_date <= to);
+  const byCat = {};
+  rows.forEach(e => { byCat[e.category] = (byCat[e.category] || 0) + e.amount; });
+  const total = rows.reduce((s, e) => s + e.amount, 0);
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:8px;">
+      <div class="card-title">Expenses — ${periodLabel()}</div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-num">${fmtMoney(total)}</div><div class="stat-label">Total</div></div>
+        <div class="stat-box"><div class="stat-num">${rows.length}</div><div class="stat-label">Entries</div></div>
+      </div>
+    </div>
+
+    ${Object.keys(byCat).length > 0 ? `
+      <div class="card" style="margin-bottom:8px;">
+        <div class="card-title" style="font-size:11px;text-transform:uppercase;color:var(--ink-soft);">By Category</div>
+        ${Object.entries(byCat).sort((a,b) => b[1]-a[1]).map(([cat, amt]) => `
+          <div class="list-row">
+            <div class="list-row-main"><div class="list-row-title">${escapeHtml(cat)}</div></div>
+            <div style="font-weight:600;">${fmtMoney(amt)}</div>
+          </div>
+        `).join('')}
+      </div>
+    ` : ''}
+
+    ${rows.length === 0
+      ? `<div class="card"><div class="empty-state">No expenses in this period.</div></div>`
+      : rows.map(e => `
+        <div class="list-row" style="background:var(--card);border-radius:8px;padding:10px 12px;margin-bottom:6px;border:1px solid var(--border);">
+          <div class="list-row-main">
+            <div class="list-row-title">${escapeHtml(e.category)}${e.description ? ' — '+escapeHtml(e.description) : ''}</div>
+            <div class="list-row-sub">${fmtDate(e.expense_date)} · ${escapeHtml(e.paid_by || '—')}</div>
+          </div>
+          <div style="font-weight:700;color:var(--red);">−${fmtMoney(e.amount)}</div>
+        </div>
+      `).join('')
+    }
+
+    <button class="btn btn-primary" style="width:100%;margin-top:12px;" onclick="printGenericReport()">Print / Save as PDF</button>
+  `;
+}
+
+// ─────────────────────────────────────────
+// 5. RESIDENT LIST
+// ─────────────────────────────────────────
+async function renderResidentsReport(el) {
+  const res = await api('/residents?status=active');
+  const residents = res.residents || res;
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:8px;">
+      <div class="card-title">Active Residents</div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-num">${residents.length}</div><div class="stat-label">Total residents</div></div>
+        <div class="stat-box"><div class="stat-num green">${residents.filter(r=>r.has_checkin_receipt).length}</div><div class="stat-label">Checked in</div></div>
+      </div>
+    </div>
+
+    ${residents.map(r => `
+      <div class="card" style="margin-bottom:6px;padding:10px 12px;">
+        <div style="display:flex;justify-content:space-between;">
+          <div>
+            <div style="font-weight:600;font-size:13.5px;">${escapeHtml(r.name)}</div>
+            <div style="font-size:11.5px;color:var(--ink-soft);">${r.floor||''} ${r.room_number||''}${r.bed_label?'-'+r.bed_label:''} · ${escapeHtml(r.phone||'')}</div>
+            <div style="font-size:11px;color:var(--ink-soft);">Joined ${fmtDate(r.join_date)} · ${escapeHtml(r.occupation||'—')}</div>
+          </div>
+          <div style="text-align:right;font-size:11.5px;">
+            <div style="font-weight:600;">${fmtMoney(r.monthly_rent||0)}/mo</div>
+            <div style="color:var(--ink-soft);">Adv ${fmtMoney(r.advance_paid||0)}/${fmtMoney(r.advance_deposit||0)}</div>
+          </div>
+        </div>
+      </div>
+    `).join('')}
+
+    <button class="btn btn-primary" style="width:100%;margin-top:12px;" onclick="printGenericReport()">Print / Save as PDF</button>
+  `;
+}
+
+// ─────────────────────────────────────────
+// 6. OCCUPANCY
+// ─────────────────────────────────────────
+async function renderOccupancyReport(el) {
+  const data = await api('/rooms');
+  const rooms = data.rooms || data;
+  const allBeds = rooms.flatMap(r => r.beds || []);
+  const occupied = allBeds.filter(b => b.occupied).length;
+  const reserved = allBeds.filter(b => b.reserved).length;
+  const vacant = allBeds.filter(b => !b.occupied && !b.reserved).length;
+  const floors = [...new Set(rooms.map(r => r.floor))];
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:8px;">
+      <div class="card-title">Occupancy</div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-num">${allBeds.length}</div><div class="stat-label">Total beds</div></div>
+        <div class="stat-box"><div class="stat-num green">${occupied}</div><div class="stat-label">Occupied</div></div>
+        <div class="stat-box"><div class="stat-num gold">${reserved}</div><div class="stat-label">Reserved</div></div>
+        <div class="stat-box"><div class="stat-num">${vacant}</div><div class="stat-label">Vacant</div></div>
+      </div>
+    </div>
+
+    ${floors.map(floor => `
+      <div class="card" style="margin-bottom:8px;">
+        <div class="card-title" style="font-size:11px;text-transform:uppercase;color:var(--ink-soft);">${floor} Floor</div>
+        ${rooms.filter(r => r.floor === floor).map(room => {
+          const occ = (room.beds||[]).filter(b => b.occupied).length;
+          const res = (room.beds||[]).filter(b => b.reserved).length;
+          const cap = room.capacity;
+          return `
+            <div class="list-row">
+              <div class="list-row-main">
+                <div class="list-row-title">Room ${escapeHtml(room.room_number)} — ${room.sharing_type}</div>
+                <div class="list-row-sub">
+                  ${(room.beds||[]).map(b => `${escapeHtml(b.label)}: ${b.occupied?'<strong>Occupied</strong>':b.reserved?'<em>Reserved</em>':'Vacant'}`).join(' · ')}
+                </div>
+              </div>
+              <div style="text-align:right;font-size:12px;">
+                <div style="font-weight:600;">${occ}/${cap}</div>
+                ${res > 0 ? `<div style="color:var(--gold);font-size:10.5px;">${res} reserved</div>` : ''}
+                <div style="font-size:10.5px;color:var(--ink-soft);">${fmtMoney(room.monthly_rent)}/mo</div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `).join('')}
+
+    <button class="btn btn-primary" style="width:100%;margin-top:12px;" onclick="printGenericReport()">Print / Save as PDF</button>
+  `;
+}
+
+// ─────────────────────────────────────────
+// 7. MONTHLY SUMMARY
+// ─────────────────────────────────────────
+async function renderSummaryReport(el, from, to) {
+  const rangeKey = reportPeriod.key;
+  const dash = await api(`/dashboard?range=${rangeKey}${rangeKey==='custom'?`&from=${from}&to=${to}`:''}`);
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:8px;">
+      <div class="card-title">Summary — ${periodLabel()}</div>
+      <div style="font-size:11px;text-transform:uppercase;color:var(--ink-soft);margin:8px 0 4px;">Occupancy</div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-num">${dash.occupied_beds}/${dash.total_beds}</div><div class="stat-label">Beds occupied</div></div>
+        <div class="stat-box"><div class="stat-num gold">${dash.reserved_beds||0}</div><div class="stat-label">Reserved</div></div>
+        <div class="stat-box"><div class="stat-num">${dash.vacant_beds}</div><div class="stat-label">Vacant</div></div>
+        <div class="stat-box"><div class="stat-num">${dash.active_residents}</div><div class="stat-label">Residents</div></div>
+      </div>
+
+      <div style="font-size:11px;text-transform:uppercase;color:var(--ink-soft);margin:12px 0 4px;">Rent</div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-num green">${fmtMoney(dash.rent_collected)}</div><div class="stat-label">Collected</div></div>
+        <div class="stat-box"><div class="stat-num red">${fmtMoney(dash.rent_pending)}</div><div class="stat-label">Pending</div></div>
+      </div>
+
+      <div style="font-size:11px;text-transform:uppercase;color:var(--ink-soft);margin:12px 0 4px;">Advance</div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-num green">${fmtMoney(dash.advance_collected)}</div><div class="stat-label">Collected</div></div>
+        <div class="stat-box"><div class="stat-num red">${fmtMoney(dash.advance_pending)}</div><div class="stat-label">Pending</div></div>
+      </div>
+
+      <div style="font-size:11px;text-transform:uppercase;color:var(--ink-soft);margin:12px 0 4px;">Money</div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-num">${fmtMoney(dash.expenses_this_month)}</div><div class="stat-label">Expenses</div></div>
+        <div class="stat-box"><div class="stat-num ${dash.net_this_month>=0?'green':'red'}">${fmtMoney(dash.net_this_month)}</div><div class="stat-label">Net income</div></div>
+      </div>
+
+      ${Object.keys(dash.expenses_by_category||{}).length > 0 ? `
+        <div style="font-size:11px;text-transform:uppercase;color:var(--ink-soft);margin:12px 0 4px;">Expenses by category</div>
+        ${Object.entries(dash.expenses_by_category).map(([cat, amt]) => `
+          <div class="list-row" style="padding:4px 0;">
+            <div class="list-row-main"><div style="font-size:12.5px;">${escapeHtml(cat)}</div></div>
+            <div style="font-weight:600;">${fmtMoney(amt)}</div>
+          </div>
+        `).join('')}
+      ` : ''}
+    </div>
+
+    <button class="btn btn-primary" style="width:100%;margin-top:4px;" onclick="printGenericReport()">Print / Save as PDF</button>
+  `;
+}
+
+// ─────────────────────────────────────────
+// Print helpers
+// ─────────────────────────────────────────
+function printGenericReport() {
+  const type = REPORT_TYPES.find(r => r.key === activeReport);
   const pgName = document.getElementById('pg-name-label')?.textContent || 'SLV PG';
-  const rows = rentData.rows || [];
-  const billed = rows.filter(r => r.id);
-  const notDue = rows.filter(r => !r.id);
-
-  const expRows = (expData.rows || []).filter(e => {
-    const from = period.from || new Date().toISOString().slice(0, 8) + '01';
-    const to = period.to || new Date().toISOString().slice(0, 10);
-    return e.expense_date >= from && e.expense_date <= to;
-  });
-
-  const expByCategory = expRows.reduce((acc, e) => {
-    acc[e.category] = (acc[e.category] || 0) + e.amount; return acc;
-  }, {});
-
+  const content = document.getElementById('report-content')?.innerHTML || '';
   const win = window.open('', '_blank');
   win.document.write(`<!DOCTYPE html><html><head>
     <meta charset="UTF-8">
-    <title>Report — ${pgName} — ${period.label}</title>
+    <title>${type?.title} — ${pgName}</title>
     <style>
-      body { font-family: 'Times New Roman', serif; margin: 20px 30px; color: #111; font-size: 12pt; }
-      h1 { font-size: 16pt; margin: 0 0 2px; }
-      h2 { font-size: 13pt; margin: 18px 0 6px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
-      h3 { font-size: 11pt; margin: 12px 0 4px; color: #555; text-transform: uppercase; letter-spacing: .5px; }
-      .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #0F2A4A; padding-bottom: 10px; }
-      .sub { color: #555; font-size: 10pt; }
-      table { width: 100%; border-collapse: collapse; margin-top: 6px; }
-      th { background: #0F2A4A; color: white; padding: 6px 8px; text-align: left; font-size: 10pt; }
-      td { padding: 5px 8px; border-bottom: 1px solid #eee; font-size: 10pt; }
-      tr:nth-child(even) td { background: #f9f6f0; }
-      .total-row td { font-weight: bold; border-top: 2px solid #0F2A4A; background: #f0ebe0 !important; }
-      .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 10px 0; }
-      .summary-box { border: 1px solid #ddd; border-radius: 6px; padding: 10px; text-align: center; }
-      .summary-box .num { font-size: 15pt; font-weight: bold; }
-      .summary-box .lbl { font-size: 9pt; color: #666; margin-top: 2px; }
-      .green { color: #2F7A4F; }
-      .red { color: #B23B3B; }
-      @media print { button { display: none; } }
+      body{font-family:sans-serif;margin:20px 30px;color:#111;font-size:12pt;}
+      .card{border:1px solid #ddd;border-radius:8px;padding:12px;margin-bottom:10px;}
+      .card-title{font-weight:700;font-size:13pt;margin-bottom:8px;}
+      .stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:8px 0;}
+      .stat-box{border:1px solid #eee;border-radius:6px;padding:8px;text-align:center;}
+      .stat-num{font-size:14pt;font-weight:700;}
+      .stat-label{font-size:9pt;color:#666;}
+      .green{color:#2F7A4F;} .red{color:#B23B3B;} .gold{color:#C99A3E;}
+      .list-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0f0f0;}
+      .list-row-title{font-weight:600;font-size:11pt;}
+      .list-row-sub{font-size:9.5pt;color:#666;}
+      .badge{display:inline-block;font-size:9pt;padding:2px 7px;border-radius:10px;background:#eee;}
+      button{display:none;}
+      h2{text-align:center;color:#0F2A4A;}
+      .sub{text-align:center;font-size:10pt;color:#555;margin-bottom:16px;}
     </style>
   </head><body>
-    <div class="header">
-      <h1>${escapeHtml(pgName)}</h1>
-      <div class="sub">Management Report · ${escapeHtml(period.label)}</div>
-      <div class="sub">Generated ${new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })} by ${escapeHtml(state.staff?.name || 'Staff')}</div>
-    </div>
-
-    <h2>Summary</h2>
-    <div class="summary-grid">
-      <div class="summary-box"><div class="num green">${fmtMoney(dash.rent_collected)}</div><div class="lbl">Rent Collected</div></div>
-      <div class="summary-box"><div class="num red">${fmtMoney(dash.rent_pending)}</div><div class="lbl">Rent Pending</div></div>
-      <div class="summary-box"><div class="num">${fmtMoney(dash.expenses_this_month)}</div><div class="lbl">Total Expenses</div></div>
-      <div class="summary-box"><div class="num green">${fmtMoney(dash.advance_collected)}</div><div class="lbl">Advance Collected</div></div>
-      <div class="summary-box"><div class="num red">${fmtMoney(dash.advance_pending)}</div><div class="lbl">Advance Pending</div></div>
-      <div class="summary-box"><div class="num ${dash.net_this_month >= 0 ? 'green' : 'red'}">${fmtMoney(dash.net_this_month)}</div><div class="lbl">Net Income</div></div>
-    </div>
-
-    <h2>Rent — ${rentData.summary?.month || ''}</h2>
-    <table>
-      <tr><th>Name</th><th>Room</th><th>Joined</th><th>Rent Due</th><th>Paid</th><th>Balance</th><th>Status</th></tr>
-      ${billed.map(r => `
-        <tr>
-          <td>${escapeHtml(r.resident_name)}</td>
-          <td>${r.floor || ''} ${r.room_number || ''}${r.bed_label ? '-' + r.bed_label : ''}</td>
-          <td>${fmtDate(r.join_date)}</td>
-          <td>${fmtMoney(r.amount_due)}</td>
-          <td style="color:#2F7A4F;font-weight:500;">${fmtMoney(r.amount_paid)}</td>
-          <td style="color:${r.amount_due - r.amount_paid > 0 ? '#B23B3B' : '#2F7A4F'};">${fmtMoney(r.amount_due - r.amount_paid)}</td>
-          <td>${r.status}</td>
-        </tr>
-      `).join('')}
-      <tr class="total-row">
-        <td colspan="3">TOTAL</td>
-        <td>${fmtMoney(rentData.summary?.total_due || 0)}</td>
-        <td>${fmtMoney(rentData.summary?.total_paid || 0)}</td>
-        <td>${fmtMoney(rentData.summary?.total_pending || 0)}</td>
-        <td></td>
-      </tr>
-    </table>
-
-    ${notDue.length > 0 ? `
-      <h3>Future Move-ins (Advance Only)</h3>
-      <table>
-        <tr><th>Name</th><th>Room</th><th>Joins</th><th>Advance Expected</th><th>Advance Paid</th><th>Balance</th></tr>
-        ${notDue.map(r => `
-          <tr>
-            <td>${escapeHtml(r.resident_name)}</td>
-            <td>${r.floor || ''} ${r.room_number || ''}${r.bed_label ? '-' + r.bed_label : ''}</td>
-            <td>${fmtDate(r.join_date)}</td>
-            <td>${fmtMoney(r.advance_deposit || 0)}</td>
-            <td>${fmtMoney(r.advance_paid || 0)}</td>
-            <td>${fmtMoney((r.advance_deposit || 0) - (r.advance_paid || 0))}</td>
-          </tr>
-        `).join('')}
-      </table>
-    ` : ''}
-
-    ${Object.keys(expByCategory).length > 0 ? `
-      <h2>Expenses — ${escapeHtml(period.label)}</h2>
-      <table>
-        <tr><th>Category</th><th>Amount</th></tr>
-        ${Object.entries(expByCategory).map(([cat, amt]) => `
-          <tr><td>${escapeHtml(cat)}</td><td>${fmtMoney(amt)}</td></tr>
-        `).join('')}
-        <tr class="total-row"><td>TOTAL</td><td>${fmtMoney(Object.values(expByCategory).reduce((s, v) => s + v, 0))}</td></tr>
-      </table>
-    ` : ''}
-
-    <br>
-    <div style="font-size:9pt;color:#888;text-align:center;margin-top:20px;">
-      ${escapeHtml(pgName)} · Ashraya Layout, Garudacharapalya, Mahadevapura, Bangalore – 560048
-    </div>
-    <script>window.onload = () => window.print();<\/script>
+    <h2>${pgName}</h2>
+    <div class="sub">${type?.title} · ${periodLabel()} · Generated ${new Date().toLocaleDateString('en-IN')}</div>
+    ${content}
+    <script>window.onload=()=>window.print();<\/script>
   </body></html>`);
   win.document.close();
+}
+
+async function printRentReport(month) {
+  printGenericReport();
 }
