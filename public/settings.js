@@ -109,13 +109,58 @@ function renderSettings(staffList, fixedCharges, corrections) {
               <div class="list-row-title">${escapeHtml(s.name)}</div>
               <div class="list-row-sub">@${escapeHtml(s.username)} · ${s.pg_name ? escapeHtml(s.pg_name) : 'no PG assigned'}</div>
             </div>
-            <span class="badge ${s.role === 'admin' ? 'badge-gold' : 'badge-gray'}">${s.role}</span>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <span class="badge ${s.role === 'admin' ? 'badge-gold' : s.role === 'pg_manager' ? 'badge-amber' : 'badge-gray'}">${s.role}</span>
+              ${s.role !== 'admin' ? `<button class="btn btn-sm btn-outline" style="padding:4px 8px;font-size:11px;" onclick="openEditStaffModal(${s.id}, '${escapeHtml(s.name)}', '${s.role}', ${s.pg_id})">Edit</button>` : ''}
+            </div>
           </div>
         `).join('')
       }
     </div>
     <p style="font-size:12.5px;color:var(--ink-soft);text-align:center;">Tap + to add a new staff login and assign them to a PG.</p>
   `;
+}
+
+function openEditStaffModal(staffId, name, currentRole, currentPgId) {
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Edit Staff — ${escapeHtml(name)}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <label>Role</label>
+    <select id="edit-staff-role">
+      <option value="staff" ${currentRole === 'staff' ? 'selected' : ''}>Staff — view/record only</option>
+      <option value="pg_manager" ${currentRole === 'pg_manager' ? 'selected' : ''}>PG Manager — can also fix flagged corrections</option>
+    </select>
+    <label>Assign to PG</label>
+    <select id="edit-staff-pg">
+      ${state.pgList.map(pg => `<option value="${pg.id}" ${pg.id === currentPgId ? 'selected' : ''}>${escapeHtml(pg.name)}</option>`).join('')}
+    </select>
+    <label>New password <span style="font-weight:400;color:var(--ink-soft);">(leave blank to keep existing)</span></label>
+    <input id="edit-staff-password" type="password" placeholder="Leave blank to keep current password">
+    <button class="btn btn-primary" style="margin-top:12px;" onclick="submitEditStaff(${staffId})">Save Changes</button>
+  `);
+}
+
+async function submitEditStaff(staffId) {
+  const role = document.getElementById('edit-staff-role').value;
+  const pg_id = parseInt(document.getElementById('edit-staff-pg').value, 10);
+  const password = document.getElementById('edit-staff-password').value;
+
+  const body = { role, pg_id };
+  if (password) {
+    if (password.length < 6) { showToast('Password must be at least 6 characters.', 'error'); return; }
+    body.password = password;
+  }
+
+  try {
+    await api(`/staff/${staffId}`, { method: 'PATCH', body: JSON.stringify(body) });
+    closeModal();
+    showToast('Staff updated.', 'success');
+    loadSettings();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
 }
 
 function openAddStaffModal() {

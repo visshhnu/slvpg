@@ -105,9 +105,13 @@ function renderResidentCard(r) {
     }
   }
 
-  // Advance badge — show exact amounts, only when balance remains
-  const advBadge = advExpected > 0 && advBalance > 0
-    ? `<span class="badge badge-amber">Advance ${fmtBal(advPaid)}/${fmtBal(advExpected)}</span>`
+  // Advance badge — show pending, paid-in-full, or overpaid states
+  const advBadge = advExpected > 0
+    ? advBalance > 0
+      ? `<span class="badge badge-amber">Advance ${fmtBal(advPaid)}/${fmtBal(advExpected)} — ₹${fmtBal(advBalance)} pending</span>`
+      : advBalance < 0
+        ? `<span class="badge badge-gold">Advance overpaid by ${fmtBal(Math.abs(advBalance))} ✓</span>`
+        : `<span class="badge badge-green">Advance paid ✓</span>`
     : '';
 
   // Check-in badge — gray (not red) within grace period; "scheduled" wording for future bookings
