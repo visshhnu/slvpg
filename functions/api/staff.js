@@ -29,17 +29,19 @@ export async function onRequestPost({ request, env }) {
     return jsonResponse({ error: 'Only an admin can add staff accounts' }, 403);
   }
 
-  const { name, phone, username, password, pg_id } = await request.json();
+  const { name, phone, username, password, pg_id, role } = await request.json();
   if (!name || !username || !password || !pg_id) {
     return jsonResponse({ error: 'Name, username, password and a PG assignment are required' }, 400);
   }
+
+  const assignedRole = role === 'pg_manager' ? 'pg_manager' : 'staff'; // never allow 'admin' via API
 
   const passwordHash = await hashPassword(password);
 
   try {
     await env.DB.prepare(
       'INSERT INTO staff (pg_id, name, phone, username, password_hash, role) VALUES (?, ?, ?, ?, ?, ?)'
-    ).bind(pg_id, name, phone || null, username.trim().toLowerCase(), passwordHash, 'staff').run();
+    ).bind(pg_id, name, phone || null, username.trim().toLowerCase(), passwordHash, assignedRole).run();
     return jsonResponse({ success: true });
   } catch (e) {
     if (String(e).includes('UNIQUE')) {

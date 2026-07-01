@@ -128,6 +128,11 @@ function openAddStaffModal() {
     <input id="staff-name" placeholder="Warden's name">
     <label>Phone</label>
     <input id="staff-phone" placeholder="Optional">
+    <label>Role</label>
+    <select id="staff-role" onchange="toggleStaffPgSelect()">
+      <option value="staff">Staff — can view/record, cannot fix corrections</option>
+      <option value="pg_manager">PG Manager — can also fix flagged corrections for their PG</option>
+    </select>
     <label>Assign to PG</label>
     <select id="staff-pg">
       ${state.pgList.map(pg => `<option value="${pg.id}">${escapeHtml(pg.name)}</option>`).join('')}
@@ -140,12 +145,17 @@ function openAddStaffModal() {
   `);
 }
 
+function toggleStaffPgSelect() {
+  // reserved for future use if admin role needs pg hidden — no-op for now
+}
+
 async function submitAddStaff() {
   const name = document.getElementById('staff-name').value.trim();
   const phone = document.getElementById('staff-phone').value.trim();
   const pg_id = parseInt(document.getElementById('staff-pg').value, 10);
   const username = document.getElementById('staff-username').value.trim();
   const password = document.getElementById('staff-password').value;
+  const role = document.getElementById('staff-role').value;
 
   if (!name || !username || !password || !pg_id) {
     showToast('Name, username, password and PG are all required.', 'error');
@@ -159,7 +169,7 @@ async function submitAddStaff() {
   try {
     await api('/staff', {
       method: 'POST',
-      body: JSON.stringify({ name, phone, username, password, pg_id }),
+      body: JSON.stringify({ name, phone, username, password, pg_id, role }),
     });
     closeModal();
     showToast('Staff login created.', 'success');
@@ -348,7 +358,7 @@ async function quickLogFixedCharge(id) {
   }
 }
 
-// ---- Corrections review (admin) ----
+// ---- Corrections review (admin / pg_manager) ----
 
 async function openResolveCorrectionModal(correctionId, recordType, recordId) {
   let record;
@@ -373,29 +383,69 @@ async function openResolveCorrectionModal(correctionId, recordType, recordId) {
       <div class="card" style="margin-bottom:14px;">
         <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Current Amount</div></div><div>${fmtMoney(record.amount)}</div></div>
         ${record.resident_name ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Resident</div></div><div>${escapeHtml(record.resident_name)}</div></div>` : ''}
+        ${record.payment_type ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Payment type</div></div><div>${escapeHtml(record.payment_type)}</div></div>` : ''}
         ${record.category ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Category</div></div><div>${escapeHtml(record.category)}</div></div>` : ''}
       </div>
-      <label>Fix the Amount</label>
-      <input id="resolve-amount" type="number" value="${record.amount}">
-      <button class="btn btn-primary" style="margin-bottom:10px;" onclick="submitFixAndResolve(${correctionId}, '${recordType}', ${recordId})">Save Fix &amp; Resolve Flag</button>
+
+      <label>What needs fixing?</label>
+      <select id="resolve-fix-type" onchange="toggleResolveFix()">
+        <option value="">Select…</option>
+        ${recordType === 'payment' ? `
+          <option value="fix_type">Wrong payment type (e.g. advance entered as rent)</option>
+        ` : ''}
+        <option value="fix_amount">Wrong amount (change or set to zero if no money was received)</option>
+        <option value="remove">Payment was entered by mistake — remove entirely</option>
+      </select>
+
+      <div id="resolve-fix-type-section" style="display:none;margin-top:10px;">
+        <label>Correct payment type</label>
+        <select id="resolve-new-type">
+          <option value="rent">Rent</option>
+          <option value="advance">Advance</option>
+          <option value="refund">Refund</option>
+        </select>
+      </div>
+
+      <div id="resolve-fix-amount-section" style="display:none;margin-top:10px;">
+        <label>Correct amount <span style="font-weight:400;color:var(--ink-soft);">(enter 0 if no payment was actually received)</span></label>
+        <input id="resolve-amount" type="number" min="0" placeholder="0" value="${record.amount}">
+      </div>
+
+      <label style="margin-top:12px;">Reason / remarks <span style="color:var(--red);font-size:11px;">* required</span></label>
+      <input id="resolve-note" placeholder="e.g. Sakti paid advance only, not rent — entry error">
+
+      <button class="btn btn-primary" style="margin-top:12px;margin-bottom:10px;" onclick="submitFixAndResolve(${correctionId}, '${recordType}', ${recordId})">Save Fix &amp; Resolve Flag</button>
     ` : `<p style="color:var(--ink-soft);margin-bottom:14px;">Original record couldn't be loaded — you can still dismiss this flag below.</p>`}
     <button class="btn btn-outline" onclick="submitDismissCorrection(${correctionId})">Dismiss Flag (no change needed)</button>
   `);
 }
 
+function toggleResolveFix() {
+  const fixType = document.getElementById('resolve-fix-type').value;
+  document.getElementById('resolve-fix-type-section').style.display = fixType === 'fix_type' ? 'block' : 'none';
+  document.getElementById('resolve-fix-amount-section').style.display = fixType === 'fix_amount' ? 'block' : 'none';
+}
+
 async function submitFixAndResolve(correctionId, recordType, recordId) {
-  const amount = parseInt(document.getElementById('resolve-amount').value, 10);
-  if (!amount || amount <= 0) {
-    showToast('Enter a valid amount.', 'error');
-    return;
+  const fixType = document.getElementById('resolve-fix-type').value;
+  const note = document.getElementById('resolve-note')?.value?.trim() || '';
+
+  if (!fixType) { showToast('Please select what needs fixing.', 'error'); return; }
+  if (!note) { showToast('A reason is required before saving.', 'error'); return; }
+
+  const body = { status: 'resolved', resolution_note: note, fix_type: fixType };
+
+  if (fixType === 'fix_type') {
+    body.new_payment_type = document.getElementById('resolve-new-type').value;
+  } else if (fixType === 'fix_amount') {
+    const amt = parseInt(document.getElementById('resolve-amount').value, 10);
+    if (isNaN(amt) || amt < 0) { showToast('Enter 0 or a positive amount.', 'error'); return; }
+    body.new_amount = amt;
   }
+  // fix_type === 'remove' needs no extra fields — note is mandatory above
+
   try {
-    const endpoint = recordType === 'payment' ? `/payments/${recordId}` : `/expenses/${recordId}`;
-    await api(endpoint, { method: 'PATCH', body: JSON.stringify({ amount }) });
-    await api(`/corrections/${correctionId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status: 'resolved', resolution_note: `Amount corrected to ${amount}` }),
-    });
+    await api(`/corrections/${correctionId}`, { method: 'PATCH', body: JSON.stringify(body) });
     closeModal();
     showToast('Fixed and resolved.', 'success');
     loadSettings();

@@ -26,12 +26,15 @@ async function recomputeLedger(env, rentLedgerId) {
 export async function onRequestPatch({ request, env, params }) {
   const session = await requireAuth(request, env);
   if (!session) return unauthorized();
-  if (session.role !== 'admin') {
-    return jsonResponse({ error: 'Only an admin can edit a payment. Use "Flag a Correction" instead.' }, 403);
-  }
 
   const payment = await env.DB.prepare('SELECT * FROM payments WHERE id = ?').bind(params.id).first();
   if (!payment) return jsonResponse({ error: 'Not found' }, 404);
+
+  const canEdit = session.role === 'admin'
+    || (session.role === 'pg_manager' && session.pgId === payment.pg_id);
+  if (!canEdit) {
+    return jsonResponse({ error: 'Only an admin or PG manager can edit a payment. Use "Flag a Correction" instead.' }, 403);
+  }
 
   const { amount, payment_mode, payment_type, payment_date, reference_note } = await request.json();
   const updates = [];
@@ -53,12 +56,15 @@ export async function onRequestPatch({ request, env, params }) {
 export async function onRequestDelete({ request, env, params }) {
   const session = await requireAuth(request, env);
   if (!session) return unauthorized();
-  if (session.role !== 'admin') {
-    return jsonResponse({ error: 'Only an admin can delete a payment. Use "Flag a Correction" instead.' }, 403);
-  }
 
   const payment = await env.DB.prepare('SELECT * FROM payments WHERE id = ?').bind(params.id).first();
   if (!payment) return jsonResponse({ error: 'Not found' }, 404);
+
+  const canDelete = session.role === 'admin'
+    || (session.role === 'pg_manager' && session.pgId === payment.pg_id);
+  if (!canDelete) {
+    return jsonResponse({ error: 'Only an admin or PG manager can delete a payment. Use "Flag a Correction" instead.' }, 403);
+  }
 
   await env.DB.prepare('DELETE FROM payments WHERE id = ?').bind(params.id).run();
   await recomputeLedger(env, payment.rent_ledger_id);
