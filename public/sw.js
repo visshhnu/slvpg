@@ -3,7 +3,7 @@
 // offline for cached screens. Uses a cache-first strategy for static
 // assets, network-first for API calls (so live data stays fresh).
 
-const CACHE_NAME = 'slvpg-v2';
+const CACHE_NAME = 'slvpg-v3';
 
 // Static assets to cache on install — the "app shell"
 const SHELL_ASSETS = [
@@ -65,13 +65,22 @@ self.addEventListener('fetch', event => {
   event.respondWith(
     caches.match(event.request).then(cached => {
       if (cached) return cached;
-      return fetch(event.request).then(response => {
+
+      // Navigation requests (page loads) come through with redirect mode
+      // "manual" — if the network response is itself a redirect, handing
+      // it back via respondWith throws. Re-issue as a plain fetch with
+      // redirect "follow" so we always resolve to the final response.
+      const fetchPromise = event.request.mode === 'navigate'
+        ? fetch(event.request.url, { redirect: 'follow' })
+        : fetch(event.request);
+
+      return fetchPromise.then(response => {
         if (response.ok) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
         }
         return response;
       });
-    })
+    }).catch(() => caches.match('/manage.html'))
   );
 });
