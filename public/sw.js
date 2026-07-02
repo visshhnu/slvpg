@@ -3,11 +3,12 @@
 // offline for cached screens. Uses a cache-first strategy for static
 // assets, network-first for API calls (so live data stays fresh).
 
-const CACHE_NAME = 'slvpg-v3';
+const CACHE_NAME = 'slvpg-v4';
 
-// Static assets to cache on install — the "app shell"
+// Static assets to cache on install — the "app shell".
+// Note: manage.html itself is intentionally NOT cached — page navigations
+// are always left to the network/browser (see the fetch handler below).
 const SHELL_ASSETS = [
-  '/manage.html',
   '/app.js',
   '/dashboard.js',
   '/residents.js',
@@ -61,26 +62,29 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Static assets: serve from cache, fall back to network, then cache the result
+  // Page navigations (typing a URL, refreshing, following a link) are left
+  // entirely to the browser's normal network fetch. Intercepting these
+  // ourselves is what caused "redirect mode is not follow" failures —
+  // navigation requests carry redirect:"manual", and re-issuing them from
+  // inside the service worker breaks if the network response is itself a
+  // redirect. Not calling respondWith() here means the browser handles the
+  // request exactly as if there were no service worker at all.
+  if (event.request.mode === 'navigate') {
+    return;
+  }
+
+  // Static assets (css/js/images/fonts): serve from cache, fall back to
+  // network, then cache the result.
   event.respondWith(
     caches.match(event.request).then(cached => {
       if (cached) return cached;
-
-      // Navigation requests (page loads) come through with redirect mode
-      // "manual" — if the network response is itself a redirect, handing
-      // it back via respondWith throws. Re-issue as a plain fetch with
-      // redirect "follow" so we always resolve to the final response.
-      const fetchPromise = event.request.mode === 'navigate'
-        ? fetch(event.request.url, { redirect: 'follow' })
-        : fetch(event.request);
-
-      return fetchPromise.then(response => {
+      return fetch(event.request).then(response => {
         if (response.ok) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
         }
         return response;
       });
-    }).catch(() => caches.match('/manage.html'))
+    })
   );
 });
