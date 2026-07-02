@@ -8,7 +8,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="SLV PG">
-<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/icon-16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <title>SLV PG Manager</title>
 <link rel="manifest" href="/manifest.json">
 <style>
@@ -55,9 +58,12 @@ body {
 }
 
 .arch-mark {
-  width: 34px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--cream);
 }
 
 .header-text { flex: 1; min-width: 0; }
@@ -385,7 +391,7 @@ label {
   width: 100%;
   box-shadow: 0 8px 30px rgba(15,42,74,0.12);
 }
-.auth-logo { width: 56px; height: 62px; margin: 0 auto 14px; display: block; }
+.auth-logo { width: 72px; height: 72px; margin: 0 auto 14px; display: block; border-radius: 50%; object-fit: cover; }
 .auth-title { text-align: center; font-size: 20px; font-weight: 800; color: var(--navy); margin-bottom: 2px; }
 .auth-sub { text-align: center; font-size: 12.5px; color: var(--gold); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 22px; }
 .auth-error { color: var(--red); font-size: 13px; font-weight: 600; margin: -4px 0 10px; min-height: 1px; }
@@ -440,12 +446,7 @@ label {
 <!-- AUTH SCREEN -->
 <div id="auth-screen" class="auth-wrap">
   <div class="auth-card">
-    <svg class="auth-logo" viewBox="0 0 56 62" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M28 2L8 14V58H48V14L28 2Z" stroke="#C99A3E" stroke-width="2.5" fill="#FAF6EE"/>
-      <path d="M28 8L14 17V52H42V17L28 8Z" stroke="#0F2A4A" stroke-width="2" fill="white"/>
-      <circle cx="28" cy="28" r="7" fill="#C99A3E"/>
-      <rect x="22" y="40" width="12" height="12" fill="#0F2A4A"/>
-    </svg>
+    <img class="auth-logo" src="/logo.png" alt="SLV Luxury PG">
     <div class="auth-title">SVPG Manager</div>
     <div class="auth-sub">Staff &amp; Management Login</div>
     <div style="margin-bottom:12px;">
@@ -485,12 +486,7 @@ label {
 <!-- MAIN APP -->
 <div id="app-shell" class="hidden">
   <header class="app-header">
-    <svg class="arch-mark" viewBox="0 0 56 62" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M28 2L8 14V58H48V14L28 2Z" stroke="#C99A3E" stroke-width="2.5" fill="none"/>
-      <path d="M28 8L14 17V52H42V17L28 8Z" stroke="#FAF6EE" stroke-width="2" fill="none"/>
-      <circle cx="28" cy="28" r="7" fill="#C99A3E"/>
-      <rect x="22" y="40" width="12" height="12" fill="#FAF6EE"/>
-    </svg>
+    <img class="arch-mark" src="/logo.png" alt="SLV Luxury PG">
     <div class="header-text" id="pg-switcher" onclick="openPgSwitcher()">
       <div class="header-title" id="screen-title">Dashboard</div>
       <div class="header-sub" id="pg-name-label">—</div>

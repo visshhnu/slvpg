@@ -3,7 +3,7 @@
 // offline for cached screens. Uses a cache-first strategy for static
 // assets, network-first for API calls (so live data stays fresh).
 
-const CACHE_NAME = 'slvpg-v1';
+const CACHE_NAME = 'slvpg-v2';
 
 // Static assets to cache on install — the "app shell"
 const SHELL_ASSETS = [
@@ -19,7 +19,11 @@ const SHELL_ASSETS = [
   '/pgs.js',
   '/image-upload.js',
   '/manifest.json',
-  '/icon.svg',
+  '/logo.png',
+  '/favicon.ico',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/apple-touch-icon.png',
 ];
 
 // Install: pre-cache the app shell
