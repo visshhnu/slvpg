@@ -3,6 +3,7 @@
 let residentFilter = 'active';
 let pendingResidentDocs = {};
 let pendingEditResidentDocs = {};
+let currentReceiptData = null;
 
 async function loadResidents() {
   const el = document.getElementById('screen-residents');
@@ -454,6 +455,7 @@ async function viewReceipt(receiptId) {
   }
 
   const pg = state.pgList.find(p => p.id === r.pg_id);
+  currentReceiptData = { r, pg };
 
   openModal(`
     <div class="modal-header">
@@ -482,7 +484,8 @@ async function viewReceipt(receiptId) {
       </div>
       <p style="font-size:11px;color:var(--ink-soft);text-align:center;">Generated ${fmtDate(r.created_at.slice(0,10))} by ${escapeHtml(r.generated_by)} · This receipt is permanent and cannot be edited.</p>
     </div>
-    <button class="btn btn-primary" style="margin-top:14px;" onclick="printReceipt()">Print / Save as PDF</button>
+    <button class="btn btn-primary" style="margin-top:14px;width:100%;" id="share-receipt-btn" onclick="shareReceiptPdf()">📤 Share Receipt (PDF)</button>
+    <button class="btn btn-outline" style="margin-top:8px;width:100%;" onclick="printReceipt()">Print / Save as PDF</button>
   `);
 }
 
@@ -501,6 +504,124 @@ function printReceipt() {
   win.document.close();
   win.focus();
   setTimeout(() => win.print(), 300);
+}
+
+// Builds an actual PDF file (not just a print dialog) from the receipt data,
+// so it can be shared directly via WhatsApp/Email/etc. through the device's
+// native share sheet — no "download then attach manually" step.
+function buildReceiptPdf(r, pg) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 48;
+  let y = 56;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.setTextColor(15, 42, 74); // navy
+  doc.text(pg ? pg.name : 'Check-in Receipt', pageWidth / 2, y, { align: 'center' });
+  y += 20;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  doc.setTextColor(100);
+  doc.text(`Check-in Receipt · ${r.receipt_number}`, pageWidth / 2, y, { align: 'center' });
+  y += 28;
+
+  doc.setDrawColor(220);
+  doc.line(margin, y, pageWidth - margin, y);
+  y += 18;
+
+  const rows = [
+    ['Resident', r.resident_name],
+    ['Phone', r.resident_phone || '—'],
+    ['Room', `${r.room_floor} ${r.room_number}-${r.bed_label} (${sharingLabelFromType(r.sharing_type)})`],
+    ['Join Date', fmtDate(r.join_date)],
+    ['Monthly Rent', fmtMoney(r.monthly_rent)],
+    ['Advance Deposit (full)', fmtMoney(r.advance_deposit)],
+    ['Refundable Amount', fmtMoney(r.refundable_amount)],
+    ['Advance Paid at Check-in', fmtMoney(r.advance_paid_now)],
+  ];
+
+  doc.setFontSize(11);
+  rows.forEach(([label, val]) => {
+    doc.setTextColor(120);
+    doc.text(label, margin, y);
+    doc.setTextColor(30);
+    doc.text(String(val), pageWidth - margin, y, { align: 'right' });
+    y += 20;
+  });
+
+  y += 10;
+  doc.setDrawColor(220);
+  doc.line(margin, y, pageWidth - margin, y);
+  y += 22;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.setTextColor(15, 42, 74);
+  doc.text('House Rules & Terms', margin, y);
+  y += 16;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(50);
+  const termLines = doc.splitTextToSize(r.terms_snapshot || '', pageWidth - margin * 2);
+  termLines.forEach(line => {
+    if (y > 780) { doc.addPage(); y = 56; }
+    doc.text(line, margin, y);
+    y += 13;
+  });
+
+  y += 20;
+  if (y > 780) { doc.addPage(); y = 56; }
+  doc.setFontSize(9);
+  doc.setTextColor(130);
+  doc.text(
+    `Generated ${fmtDate(r.created_at.slice(0, 10))} by ${r.generated_by} · This receipt is permanent and cannot be edited.`,
+    pageWidth / 2, y, { align: 'center', maxWidth: pageWidth - margin * 2 }
+  );
+
+  return doc;
+}
+
+async function shareReceiptPdf() {
+  if (!currentReceiptData) { showToast('Receipt data not loaded.', 'error'); return; }
+  const { r, pg } = currentReceiptData;
+  const btn = document.getElementById('share-receipt-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Preparing PDF…'; }
+
+  try {
+    const doc = buildReceiptPdf(r, pg);
+    const fileName = `${r.receipt_number.replace(/[^a-z0-9-]/gi, '_')}.pdf`;
+    const pdfBlob = doc.output('blob');
+    const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: `Check-in Receipt — ${r.resident_name}`,
+        text: `Check-in receipt for ${r.resident_name} (${r.receipt_number})`,
+      });
+    } else {
+      // Desktop / unsupported browsers: fall back to a direct download.
+      const url = URL.createObjectURL(pdfBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast('Sharing isn\'t supported on this browser — PDF downloaded instead. Attach it from your downloads to WhatsApp/Email.', '');
+    }
+  } catch (e) {
+    // AbortError happens when the user just cancels the share sheet — not a real error.
+    if (e.name !== 'AbortError') {
+      showToast('Could not generate the PDF: ' + e.message, 'error');
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '📤 Share Receipt (PDF)'; }
+  }
 }
 
 // ---- Edit payment (admin / pg_manager only) ----

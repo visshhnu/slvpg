@@ -3,7 +3,7 @@
 // offline for cached screens. Uses a cache-first strategy for static
 // assets, network-first for API calls (so live data stays fresh).
 
-const CACHE_NAME = 'slvpg-v4';
+const CACHE_NAME = 'slvpg-v5';
 
 // Static assets to cache on install — the "app shell".
 // Note: manage.html itself is intentionally NOT cached — page navigations

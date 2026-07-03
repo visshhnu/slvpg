@@ -10,20 +10,25 @@ export async function onRequestPost({ request, env }) {
   if (!pgId) return jsonResponse({ error: 'pg_id is required' }, 400);
 
   const body = await request.json();
-  const { resident_id, rent_ledger_id, amount, payment_mode, payment_type, reference_note } = body;
+  const { resident_id, rent_ledger_id, amount, payment_mode, payment_type, reference_note, payment_date } = body;
 
   if (!resident_id || !amount || amount <= 0) {
     return jsonResponse({ error: 'Resident and a positive amount are required' }, 400);
   }
 
+  // Payment date defaults to today if not supplied, but staff can backdate
+  // it (e.g. cash collected a few days ago, entered into the app late).
+  const today = new Date().toISOString().slice(0, 10);
+  const effectiveDate = payment_date && /^\d{4}-\d{2}-\d{2}$/.test(payment_date) ? payment_date : today;
+
   // Record the payment transaction
   await env.DB.prepare(`
-    INSERT INTO payments (pg_id, rent_ledger_id, resident_id, amount, payment_mode, payment_type, collected_by, reference_note)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO payments (pg_id, rent_ledger_id, resident_id, amount, payment_mode, payment_type, collected_by, reference_note, payment_date)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     pgId, rent_ledger_id || null, resident_id, amount,
     payment_mode || 'cash', payment_type || 'rent',
-    session.name, reference_note || null
+    session.name, reference_note || null, effectiveDate
   ).run();
 
   if (payment_type === 'advance') {

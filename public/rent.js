@@ -130,6 +130,7 @@ function renderRentCard(row) {
   const advPaid = row.advance_paid || 0;
   const advExpected = row.advance_deposit || 0;
   const advBalance = advExpected - advPaid;
+  const totalOutstanding = Math.max(0, balance) + Math.max(0, advBalance);
 
   return `
     <div class="card" style="margin-bottom:10px;">
@@ -137,7 +138,13 @@ function renderRentCard(row) {
       <!-- Header: name + status -->
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:6px;">
         <div style="min-width:0;">
-          <div style="font-size:14px;font-weight:600;">${escapeHtml(row.resident_name)}</div>
+          <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;">
+            <span style="font-size:14px;font-weight:600;">${escapeHtml(row.resident_name)}</span>
+            ${totalOutstanding > 0
+              ? `<span style="font-size:11.5px;font-weight:700;color:var(--text-danger);">${fmtMoney(totalOutstanding)} total due</span>`
+              : `<span style="font-size:11.5px;font-weight:600;color:var(--text-success);">All settled ✓</span>`
+            }
+          </div>
           <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
             ${row.floor || ''} ${row.room_number || ''}${row.bed_label ? '-' + row.bed_label : ''}
             · Joined ${fmtDate(row.join_date)}
@@ -198,6 +205,7 @@ function renderRentCard(row) {
 
 // --- Collect full balance ---
 function openCollectModal(ledgerId, residentId, name, balance, amountDue) {
+  const today = new Date().toISOString().slice(0, 10);
   openModal(`
     <div class="modal-header">
       <div class="modal-title">Collect rent — ${escapeHtml(name)}</div>
@@ -210,6 +218,8 @@ function openCollectModal(ledgerId, residentId, name, balance, amountDue) {
     </div>
     <label>Amount received (₹)</label>
     <input id="pay-amount" type="number" value="${balance}" min="1" max="${balance}">
+    <label>Date received</label>
+    <input id="pay-date" type="date" value="${today}" max="${today}">
     <label>Payment mode</label>
     <select id="pay-mode">
       <option value="cash">Cash</option>
@@ -225,6 +235,7 @@ function openCollectModal(ledgerId, residentId, name, balance, amountDue) {
 // --- Part payment (same modal, empty amount, explicit framing) ---
 function openPartPaymentModal(ledgerId, residentId, name, balance, amountDue) {
   const alreadyPaid = amountDue - balance;
+  const today = new Date().toISOString().slice(0, 10);
   openModal(`
     <div class="modal-header">
       <div class="modal-title">Part payment — ${escapeHtml(name)}</div>
@@ -241,6 +252,8 @@ function openPartPaymentModal(ledgerId, residentId, name, balance, amountDue) {
     <label>Amount received now (₹)</label>
     <input id="pay-amount" type="number" placeholder="Enter amount received" min="1" max="${balance}">
     <div id="pay-after-hint" style="font-size:11px;color:var(--text-muted);margin-top:4px;min-height:16px;"></div>
+    <label>Date received</label>
+    <input id="pay-date" type="date" value="${today}" max="${today}">
     <label>Payment mode</label>
     <select id="pay-mode">
       <option value="cash">Cash</option>
@@ -273,9 +286,14 @@ async function submitRentPayment(ledgerId, residentId) {
   const amount = parseInt(amountInput.value, 10);
   const payment_mode = document.getElementById('pay-mode').value;
   const reference_note = document.getElementById('pay-note').value.trim();
+  const dateInput = document.getElementById('pay-date');
+  const payment_date = dateInput ? dateInput.value : null;
 
   if (!amount || amount <= 0) {
     showToast('Enter a valid amount.', 'error'); return;
+  }
+  if (dateInput && !payment_date) {
+    showToast('Please pick the date received.', 'error'); return;
   }
 
   try {
@@ -283,7 +301,7 @@ async function submitRentPayment(ledgerId, residentId) {
       method: 'POST',
       body: JSON.stringify({
         resident_id: residentId, rent_ledger_id: ledgerId,
-        amount, payment_mode, payment_type: 'rent', reference_note,
+        amount, payment_mode, payment_type: 'rent', reference_note, payment_date,
       }),
     });
     closeModal();
@@ -296,6 +314,7 @@ async function submitRentPayment(ledgerId, residentId) {
 
 // --- Advance instalment ---
 function openAdvanceModal(residentId, name, balance) {
+  const today = new Date().toISOString().slice(0, 10);
   openModal(`
     <div class="modal-header">
       <div class="modal-title">Advance instalment — ${escapeHtml(name)}</div>
@@ -306,6 +325,8 @@ function openAdvanceModal(residentId, name, balance) {
     </div>
     <label>Amount received now (₹)</label>
     <input id="adv-amount" type="number" placeholder="Enter amount" min="1" max="${balance}">
+    <label>Date received</label>
+    <input id="adv-date" type="date" value="${today}" max="${today}">
     <label>Payment mode</label>
     <select id="adv-mode">
       <option value="cash">Cash</option>
@@ -322,9 +343,14 @@ async function submitAdvancePayment(residentId) {
   const amount = parseInt(document.getElementById('adv-amount').value, 10);
   const payment_mode = document.getElementById('adv-mode').value;
   const reference_note = document.getElementById('adv-note').value.trim();
+  const dateInput = document.getElementById('adv-date');
+  const payment_date = dateInput ? dateInput.value : null;
 
   if (!amount || amount <= 0) {
     showToast('Enter a valid amount.', 'error'); return;
+  }
+  if (dateInput && !payment_date) {
+    showToast('Please pick the date received.', 'error'); return;
   }
 
   try {
@@ -334,7 +360,7 @@ async function submitAdvancePayment(residentId) {
         resident_id: residentId,
         amount, payment_mode,
         payment_type: 'advance',
-        reference_note,
+        reference_note, payment_date,
       }),
     });
     closeModal();
