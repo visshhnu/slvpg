@@ -1,6 +1,6 @@
 // functions/api/residents.js
 import { requireAuth, jsonResponse, unauthorized, resolvePgId } from '../_auth.js';
-import { ensureLedgerRows } from '../_rent.js';
+import { ensureLedgerRows, deriveRentStatus } from '../_ledger.js';
 
 export async function onRequestGet({ request, env }) {
   const session = await requireAuth(request, env);
@@ -50,12 +50,11 @@ export async function onRequestGet({ request, env }) {
       `SELECT id FROM checkin_receipts WHERE resident_id = ? LIMIT 1`
     ).bind(res.id).first();
 
-    // Compute overdue flag
-    let rentStatus = rentRow ? rentRow.status : null;
+    // Same overdue derivation rent.js uses -- deriveRentStatus is the only
+    // place that compares "today" to a due_date, so the two screens can't
+    // disagree about whether a resident is overdue.
     const today = new Date().toISOString().slice(0, 10);
-    if (rentStatus && rentStatus !== 'paid' && rentRow.due_date && today > rentRow.due_date) {
-      rentStatus = 'overdue';
-    }
+    const rentStatus = rentRow ? deriveRentStatus(rentRow, today) : null;
 
     enriched.push({
       ...res,

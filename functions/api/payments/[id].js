@@ -1,27 +1,6 @@
 // functions/api/payments/[id].js
 import { requireAuth, jsonResponse, unauthorized } from '../../_auth.js';
-
-// Recomputes a rent_ledger row's amount_paid/status from scratch based on
-// every payment still linked to it. Called after any edit or delete so the
-// ledger never drifts out of sync with the underlying payment records.
-async function recomputeLedger(env, rentLedgerId) {
-  if (!rentLedgerId) return;
-  const ledgerRow = await env.DB.prepare('SELECT * FROM rent_ledger WHERE id = ?').bind(rentLedgerId).first();
-  if (!ledgerRow) return;
-
-  const sum = await env.DB.prepare(
-    'SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE rent_ledger_id = ?'
-  ).bind(rentLedgerId).first();
-
-  const newPaid = sum.total;
-  let newStatus = 'pending';
-  if (newPaid >= ledgerRow.amount_due) newStatus = 'paid';
-  else if (newPaid > 0) newStatus = 'partial';
-
-  await env.DB.prepare(
-    'UPDATE rent_ledger SET amount_paid = ?, status = ? WHERE id = ?'
-  ).bind(newPaid, newStatus, rentLedgerId).run();
-}
+import { recomputeResidentLedger } from '../../_ledger.js';
 
 export async function onRequestPatch({ request, env, params }) {
   const session = await requireAuth(request, env);
@@ -36,7 +15,7 @@ export async function onRequestPatch({ request, env, params }) {
     return jsonResponse({ error: 'Only an admin or PG manager can edit a payment. Use "Flag a Correction" instead.' }, 403);
   }
 
-  const { amount, payment_mode, payment_type, payment_date, reference_note } = await request.json();
+  const { amount, payment_mode, payment_type, payment_date, reference_note, status } = await request.json();
   const updates = [];
   const binds = [];
   if (amount !== undefined) { updates.push('amount = ?'); binds.push(amount); }
@@ -44,12 +23,27 @@ export async function onRequestPatch({ request, env, params }) {
   if (payment_type !== undefined) { updates.push('payment_type = ?'); binds.push(payment_type); }
   if (payment_date !== undefined) { updates.push('payment_date = ?'); binds.push(payment_date); }
   if (reference_note !== undefined) { updates.push('reference_note = ?'); binds.push(reference_note); }
+
+  // Explicit lifecycle change (e.g. mark a payment 'voided' or 'refunded'
+  // without deleting it -- keeps it on record for audit but stops it from
+  // counting toward any balance, see functions/_ledger.js).
+  if (status !== undefined) {
+    if (!['posted', 'voided', 'refunded'].includes(status)) {
+      return jsonResponse({ error: "status must be 'posted', 'voided' or 'refunded'" }, 400);
+    }
+    if (status !== 'posted' && (!reference_note || !reference_note.trim())) {
+      return jsonResponse({ error: 'A reason is required when voiding or refunding a payment.' }, 400);
+    }
+    updates.push('status = ?', 'status_note = ?', 'status_by = ?', "status_at = datetime('now')");
+    binds.push(status, reference_note || null, session.name);
+  }
+
   if (updates.length === 0) return jsonResponse({ error: 'Nothing to update' }, 400);
 
   binds.push(params.id);
   await env.DB.prepare(`UPDATE payments SET ${updates.join(', ')} WHERE id = ?`).bind(...binds).run();
 
-  await recomputeLedger(env, payment.rent_ledger_id);
+  await recomputeResidentLedger(env, payment.resident_id);
   return jsonResponse({ success: true });
 }
 
@@ -66,8 +60,22 @@ export async function onRequestDelete({ request, env, params }) {
     return jsonResponse({ error: 'Only an admin or PG manager can delete a payment. Use "Flag a Correction" instead.' }, 403);
   }
 
-  await env.DB.prepare('DELETE FROM payments WHERE id = ?').bind(params.id).run();
-  await recomputeLedger(env, payment.rent_ledger_id);
+  let reason = '';
+  try {
+    const body = await request.json();
+    reason = (body && body.reason) ? String(body.reason).trim() : '';
+  } catch { /* no body sent */ }
+  if (!reason) return jsonResponse({ error: 'A reason is required to delete a payment.' }, 400);
+
+  // Soft delete: the row stays on record (status='deleted') instead of
+  // vanishing, so there's an audit trail of what was removed and why. Every
+  // balance calculation filters to status='posted', so a deleted payment
+  // stops counting immediately.
+  await env.DB.prepare(
+    `UPDATE payments SET status = 'deleted', status_note = ?, status_by = ?, status_at = datetime('now') WHERE id = ?`
+  ).bind(reason, session.name, params.id).run();
+
+  await recomputeResidentLedger(env, payment.resident_id);
 
   return jsonResponse({ success: true });
 }

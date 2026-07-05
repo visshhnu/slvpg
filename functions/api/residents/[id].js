@@ -1,5 +1,6 @@
 // functions/api/residents/[id].js
 import { requireAuth, jsonResponse, unauthorized } from '../../_auth.js';
+import { deriveRentStatus, deriveAdvanceState } from '../../_ledger.js';
 
 function daysBetween(a, b) {
   return Math.round((new Date(b) - new Date(a)) / (1000 * 60 * 60 * 24));
@@ -33,7 +34,7 @@ export async function onRequestGet({ request, env, params }) {
   if (session.role !== 'admin' && resident.pg_id !== session.pgId) return unauthorized();
 
   const { results: payments } = await env.DB.prepare(
-    'SELECT * FROM payments WHERE resident_id = ? ORDER BY payment_date DESC'
+    `SELECT * FROM payments WHERE resident_id = ? AND status = 'posted' ORDER BY payment_date DESC`
   ).bind(params.id).all();
 
   const { results: ledger } = await env.DB.prepare(
@@ -42,7 +43,21 @@ export async function onRequestGet({ request, env, params }) {
 
   const refundEligibility = computeRefundEligibility(resident.notice_date, resident.planned_vacate_date);
 
-  return jsonResponse({ ...resident, payments, ledger, refund_eligibility: refundEligibility });
+  // Current-month ledger summary + advance summary, using the same shared
+  // derivation as Rent tab and Residents tab, so this detail view can't show
+  // a different truth than either of those screens.
+  const today = new Date().toISOString().slice(0, 10);
+  const currentMonth = today.slice(0, 7);
+  const currentLedgerRow = ledger.find(l => l.month === currentMonth) || null;
+  const rent_this_month = {
+    expected: currentLedgerRow ? currentLedgerRow.amount_due : null,
+    paid: currentLedgerRow ? currentLedgerRow.amount_paid : 0,
+    due: currentLedgerRow ? currentLedgerRow.amount_due - currentLedgerRow.amount_paid : 0,
+    status: deriveRentStatus(currentLedgerRow, today),
+  };
+  const advance = deriveAdvanceState(resident.advance_deposit, resident.advance_paid);
+
+  return jsonResponse({ ...resident, payments, ledger, refund_eligibility: refundEligibility, rent_this_month, advance });
 }
 
 export async function onRequestPatch({ request, env, params }) {

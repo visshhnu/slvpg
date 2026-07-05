@@ -59,6 +59,33 @@ function monthLabel(ym) {
   return date.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 }
 
+// ---------- Shared rent/advance status vocabulary ----------
+// Single source of label/color mapping so Rent tab, Residents tab and the
+// resident detail modal never describe the same underlying state with
+// different words (mirrors functions/_ledger.js on the backend, which is
+// the single source of the actual numbers these labels describe).
+const RENT_STATUS_LABELS = { paid: 'Rent paid', partial: 'Rent partial', pending: 'Rent due', overdue: 'Rent overdue', not_due: 'Move-in scheduled' };
+const RENT_STATUS_BADGE_CLASS = { paid: 'badge-green', partial: 'badge-amber', pending: 'badge-gray', overdue: 'badge-red', not_due: 'badge-gold' };
+function rentStatusLabel(status) { return RENT_STATUS_LABELS[status] || status; }
+function rentStatusBadgeClass(status) { return RENT_STATUS_BADGE_CLASS[status] || 'badge-gray'; }
+
+const ADVANCE_STATUS_LABELS = { pending: 'Advance pending', partial: 'Advance partial', paid: 'Advance paid', overpaid: 'Advance overpaid' };
+const ADVANCE_STATUS_BADGE_CLASS = { pending: 'badge-amber', partial: 'badge-amber', paid: 'badge-green', overpaid: 'badge-gold' };
+// expected/paid always come from the backend (residents.advance_paid,
+// re-derived on every payment change by functions/_ledger.js) -- this only
+// decides which label/colour to show for a given balance.
+function advanceState(expected, paid) {
+  expected = expected || 0; paid = paid || 0;
+  const balance = expected - paid;
+  let status;
+  if (expected <= 0) status = 'not_applicable';
+  else if (paid <= 0) status = 'pending';
+  else if (balance > 0) status = 'partial';
+  else if (balance < 0) status = 'overpaid';
+  else status = 'paid';
+  return { expected, paid, balance, status };
+}
+
 function escapeHtml(str) {
   if (str == null) return '';
   return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));

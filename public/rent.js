@@ -22,12 +22,8 @@ function changeRentMonth(delta) {
   loadRent();
 }
 
-function rentStatusBadgeClass(s) {
-  return { paid: 'badge-green', partial: 'badge-amber', pending: 'badge-gray', overdue: 'badge-red' }[s] || 'badge-gray';
-}
-function rentStatusLabel(s) {
-  return { paid: 'Paid in full', partial: 'Partial', pending: 'Pending', overdue: 'Overdue' }[s] || s;
-}
+// rentStatusBadgeClass/rentStatusLabel now live in app.js (shared with
+// residents.js) so both screens use the exact same wording for each status.
 
 function renderRentProgressBar(paid, due, status) {
   const pct = due > 0 ? Math.min(100, Math.round((paid / due) * 100)) : 0;
@@ -67,20 +63,19 @@ function renderPaymentHistory(payments) {
 
 function renderAdvanceRow(row) {
   const expected = row.advance_deposit || 0;
-  const paid = row.advance_paid || 0;
   if (expected === 0) return '';
-  const balance = expected - paid;
-  const done = balance <= 0;
+  const adv = advanceState(expected, row.advance_paid || 0);
+  const done = adv.balance <= 0;
   return `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:0.5px solid var(--border);">
       <div>
-        <div style="font-size:10px;color:var(--text-muted);">Advance deposit</div>
+        <div style="font-size:10px;color:var(--text-muted);">${ADVANCE_STATUS_LABELS[adv.status]}</div>
         <div style="font-size:12px;font-weight:500;${done ? 'color:var(--text-success)' : 'color:var(--text-warning)'};">
-          ${fmtMoney(paid)} of ${fmtMoney(expected)}
-          ${done ? ' ✓' : ` — ${fmtMoney(balance)} pending`}
+          ${fmtMoney(adv.paid)} of ${fmtMoney(adv.expected)}
+          ${adv.status === 'overpaid' ? ` — overpaid by ${fmtMoney(-adv.balance)} ✓` : done ? ' ✓' : ` — ${fmtMoney(adv.balance)} pending`}
         </div>
       </div>
-      ${!done ? `<button class="btn btn-sm" style="font-size:11px;" onclick="openAdvanceModal(${row.resident_id}, '${escapeHtml(row.resident_name)}', ${balance})">+ Add instalment</button>` : ''}
+      ${!done ? `<button class="btn btn-sm" style="font-size:11px;" onclick="openAdvanceModal(${row.resident_id}, '${escapeHtml(row.resident_name)}', ${adv.balance})">+ Add instalment</button>` : ''}
     </div>`;
 }
 
@@ -127,10 +122,9 @@ function renderRentCard(row) {
   const balance = notDue ? 0 : row.amount_due - row.amount_paid;
   const hasPaidSomething = !notDue && row.amount_paid > 0;
   const isPaid = row.status === 'paid';
-  const advPaid = row.advance_paid || 0;
   const advExpected = row.advance_deposit || 0;
-  const advBalance = advExpected - advPaid;
-  const totalOutstanding = Math.max(0, balance) + Math.max(0, advBalance);
+  const adv = advanceState(advExpected, row.advance_paid || 0);
+  const totalOutstanding = Math.max(0, balance) + Math.max(0, adv.balance);
 
   return `
     <div class="card" style="margin-bottom:10px;">
@@ -151,7 +145,7 @@ function renderRentCard(row) {
             ${notDue ? ' · <em>moves in</em>' : ` · Due ${fmtDate(row.due_date)}`}
           </div>
         </div>
-        <span class="badge ${notDue ? 'badge-gold' : rentStatusBadgeClass(row.status)}">${notDue ? 'No rent due yet' : rentStatusLabel(row.status)}</span>
+        <span class="badge ${rentStatusBadgeClass(row.status)}">${rentStatusLabel(row.status)}</span>
       </div>
 
       <!-- Rent row -->
@@ -187,14 +181,16 @@ function renderRentCard(row) {
       ${advExpected > 0 ? `
         <div style="padding:8px 0;border-top:1px solid var(--border);">
           <div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;font-weight:600;margin-bottom:4px;">
-            <span style="color:var(--text-muted);">ADVANCE DEPOSIT</span>
-            <span>${advBalance <= 0
-              ? `<span style="color:var(--text-success);">${fmtMoney(advPaid)} paid ✓</span>`
-              : `<span style="color:var(--text-danger);">${fmtMoney(advBalance)} pending</span> <span style="color:var(--text-muted);font-weight:400;">of ${fmtMoney(advExpected)}</span>`
+            <span style="color:var(--text-muted);">${ADVANCE_STATUS_LABELS[adv.status].toUpperCase()}</span>
+            <span>${adv.status === 'overpaid'
+              ? `<span style="color:var(--gold,#C99A3E);">${fmtMoney(adv.paid)} paid — overpaid by ${fmtMoney(-adv.balance)}</span>`
+              : adv.status === 'paid'
+                ? `<span style="color:var(--text-success);">${fmtMoney(adv.paid)} paid ✓</span>`
+                : `<span style="color:var(--text-danger);">${fmtMoney(adv.balance)} pending</span> <span style="color:var(--text-muted);font-weight:400;">of ${fmtMoney(adv.expected)}</span>`
             }</span>
           </div>
-          ${advBalance > 0 ? `
-            <button class="btn btn-sm" style="margin-top:4px;font-size:11.5px;" onclick="openAdvanceModal(${row.resident_id}, '${escapeHtml(row.resident_name)}', ${advBalance})">
+          ${adv.balance > 0 ? `
+            <button class="btn btn-sm" style="margin-top:4px;font-size:11.5px;" onclick="openAdvanceModal(${row.resident_id}, '${escapeHtml(row.resident_name)}', ${adv.balance})">
               + Collect advance instalment
             </button>` : ''}
         </div>

@@ -10,12 +10,13 @@ const STANDARD_TERMS = `HOUSE RULES & TERMS OF STAY
 1. Rent is due by the 5th of every month. Late payment will be fined as per management's current policy.
 2. Vacating residents must inform management at least one month (30 days) in advance. The advance deposit will not be refunded if this notice period is not honoured.
 3. Strictly no smoking and no alcohol on the premises.
-4. No outsiders are allowed inside resident rooms. Violation may result in the resident being asked to vacate immediately.
-5. Residents must keep their room and all common areas clean and well-maintained.
-6. Rent and advance payments must be made only through the official management contact. Payments made to any other person are not the management's responsibility.
-7. All residents must cooperate with house rules to maintain a peaceful living environment for everyone.
-8. LIABILITY FOR DAMAGE & WASTAGE: The resident is liable to pay for any damage caused to PG property (furniture, fittings, electronics, fixtures, or any other asset) beyond normal wear and tear, and for any wastage of utilities (water, electricity) caused by negligence. Charges for such damage or wastage will be deducted from the refundable deposit, or billed separately if they exceed it.
-9. Management's decision is final in all operational matters.
+4. Gutka chewing, tobacco spitting, and spitting inside the premises are strictly prohibited. If found, cleaning charges will be collected from the resident. Premises are under CCTV surveillance.
+5. No outsiders are allowed inside resident rooms. Violation may result in the resident being asked to vacate immediately.
+6. Residents must keep their room and all common areas clean and well-maintained.
+7. Rent and advance payments must be made only through the official management contact. Payments made to any other person are not the management's responsibility.
+8. All residents must cooperate with house rules to maintain a peaceful living environment for everyone.
+9. LIABILITY FOR DAMAGE & WASTAGE: The resident is liable to pay for any damage caused to PG property (furniture, fittings, electronics, fixtures, or any other asset) beyond normal wear and tear, and for any wastage of utilities (water, electricity) caused by negligence. Charges for such damage or wastage will be deducted from the refundable deposit, or billed separately if they exceed it.
+10. Management's decision is final in all operational matters.
 
 By accepting this receipt, the resident acknowledges having read and agreed to the above terms.`;
 

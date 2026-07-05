@@ -1,6 +1,6 @@
 // functions/api/dashboard.js
 import { requireAuth, jsonResponse, unauthorized, resolvePgId } from '../_auth.js';
-import { ensureLedgerRows } from '../_rent.js';
+import { ensureLedgerRows } from '../_ledger.js';
 
 function toDateStr(d) { return d.toISOString().slice(0, 10); }
 

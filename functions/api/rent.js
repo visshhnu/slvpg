@@ -1,6 +1,6 @@
 // functions/api/rent.js
 import { requireAuth, jsonResponse, unauthorized, resolvePgId } from '../_auth.js';
-import { ensureLedgerRows } from '../_rent.js';
+import { ensureLedgerRows, deriveRentStatus } from '../_ledger.js';
 
 export async function onRequestGet({ request, env }) {
   const session = await requireAuth(request, env);
@@ -46,17 +46,17 @@ export async function onRequestGet({ request, env }) {
     // Compute real status (overdue if past 5th and not fully paid). Residents
     // with no ledger row yet (future joiners, no rent due this month) get
     // status 'not_due' so the UI can show them separately, not as "pending".
-    let status = row.status || 'not_due';
-    if (row.status && (status === 'pending' || status === 'partial') && today > row.due_date) {
-      status = 'overdue';
-    }
+    // deriveRentStatus is the single shared implementation of this -- the
+    // same one residents.js uses -- so the two screens can't disagree.
+    const status = row.id ? deriveRentStatus(row, today) : 'not_due';
 
-    // Fetch payment history for this ledger row (none if row.id is null)
+    // Fetch payment history for this ledger row (none if row.id is null).
+    // Only 'posted' payments -- a deleted/voided one shouldn't reappear here.
     const { results: payments } = row.id
       ? await env.DB.prepare(`
           SELECT id, amount, payment_mode, payment_type, payment_date, reference_note, collected_by
           FROM payments
-          WHERE rent_ledger_id = ?
+          WHERE rent_ledger_id = ? AND status = 'posted'
           ORDER BY payment_date ASC, created_at ASC
         `).bind(row.id).all()
       : { results: [] };

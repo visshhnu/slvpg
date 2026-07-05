@@ -1,5 +1,6 @@
 // functions/api/payments.js
 import { requireAuth, jsonResponse, unauthorized, resolvePgId } from '../_auth.js';
+import { recomputeResidentLedger } from '../_ledger.js';
 
 export async function onRequestPost({ request, env }) {
   const session = await requireAuth(request, env);
@@ -21,7 +22,8 @@ export async function onRequestPost({ request, env }) {
   const today = new Date().toISOString().slice(0, 10);
   const effectiveDate = payment_date && /^\d{4}-\d{2}-\d{2}$/.test(payment_date) ? payment_date : today;
 
-  // Record the payment transaction
+  // Record the payment transaction (status defaults to 'posted' -- only
+  // posted payments ever count toward a balance, see functions/_ledger.js)
   await env.DB.prepare(`
     INSERT INTO payments (pg_id, rent_ledger_id, resident_id, amount, payment_mode, payment_type, collected_by, reference_note, payment_date)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -31,27 +33,10 @@ export async function onRequestPost({ request, env }) {
     session.name, reference_note || null, effectiveDate
   ).run();
 
-  if (payment_type === 'advance') {
-    // Advance payment: accumulate into residents.advance_paid
-    const resident = await env.DB.prepare('SELECT advance_paid FROM residents WHERE id = ?').bind(resident_id).first();
-    if (resident) {
-      await env.DB.prepare(
-        'UPDATE residents SET advance_paid = ? WHERE id = ?'
-      ).bind((resident.advance_paid || 0) + amount, resident_id).run();
-    }
-  } else if (rent_ledger_id) {
-    // Rent payment: update the ledger row's amount_paid and status
-    const ledgerRow = await env.DB.prepare('SELECT * FROM rent_ledger WHERE id = ?').bind(rent_ledger_id).first();
-    if (ledgerRow) {
-      const newPaid = ledgerRow.amount_paid + amount;
-      // Cap at amount_due so overpayment doesn't flip to weird status
-      const capped = Math.min(newPaid, ledgerRow.amount_due);
-      const newStatus = capped >= ledgerRow.amount_due ? 'paid' : 'partial';
-      await env.DB.prepare(
-        'UPDATE rent_ledger SET amount_paid = ?, status = ? WHERE id = ?'
-      ).bind(capped, newStatus, rent_ledger_id).run();
-    }
-  }
+  // Re-derive rent_ledger + residents.advance_paid from the payments table
+  // instead of incrementing a stored counter -- the single shared formula
+  // used everywhere (see functions/_ledger.js).
+  await recomputeResidentLedger(env, resident_id);
 
   return jsonResponse({ success: true });
 }
@@ -73,7 +58,7 @@ export async function onRequestGet({ request, env }) {
     JOIN residents res ON res.id = p.resident_id
     LEFT JOIN beds b ON b.id = res.bed_id
     LEFT JOIN rooms r ON r.id = b.room_id
-    WHERE p.pg_id = ?
+    WHERE p.pg_id = ? AND p.status = 'posted'
   `;
   const binds = [pgId];
 

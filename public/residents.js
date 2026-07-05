@@ -57,8 +57,8 @@ function setResidentFilter(f) {
 function renderResidentCard(r) {
   const rent = r.rent_this_month;
   const advExpected = r.advance_deposit || 0;
-  const advPaid = r.advance_paid || 0;
-  const advBalance = advExpected - advPaid;
+  const adv = advanceState(advExpected, r.advance_paid || 0);
+  const advBalance = adv.balance;
 
   // Grace period: new residents (joined <=3 days ago) don't get red check-in warning yet
   const joinedDaysAgo = r.join_date
@@ -85,41 +85,39 @@ function renderResidentCard(r) {
     return fmtMoney(n);
   }
 
-  // Rent badge
+  // Rent badge — labels/colours shared with the Rent tab (see app.js) so the
+  // two screens can never describe the same underlying ledger row differently.
   let rentBadge = '';
   if (isFutureBooking) {
     rentBadge = `<span class="badge badge-gold">Booked — moves in ${fmtDate(r.join_date)}</span>`;
   } else if (r.status === 'active' || r.status === 'notice_given') {
     if (!rent) {
       rentBadge = `<span class="badge badge-gray">No rent entry yet</span>`;
+    } else if (rent.status === 'overdue' || rent.status === 'partial') {
+      const bal = rent.amount_due - rent.amount_paid;
+      rentBadge = `<span class="badge ${rentStatusBadgeClass(rent.status)}">${rentStatusLabel(rent.status)} — ${fmtBal(bal)} left</span>`;
     } else if (rent.status === 'paid') {
-      rentBadge = `<span class="badge badge-green">Rent paid</span>`;
-    } else if (rent.status === 'overdue') {
-      const bal = rent.amount_due - rent.amount_paid;
-      rentBadge = `<span class="badge badge-red">Overdue — ${fmtBal(bal)}</span>`;
-    } else if (rent.status === 'partial') {
-      const bal = rent.amount_due - rent.amount_paid;
-      rentBadge = `<span class="badge badge-amber">Partial — ${fmtBal(bal)} left</span>`;
+      rentBadge = `<span class="badge badge-green">${rentStatusLabel('paid')}</span>`;
     } else {
       // pending = due date not passed yet, totally normal
-      rentBadge = `<span class="badge badge-gray">Rent due 5th</span>`;
+      rentBadge = `<span class="badge badge-gray">${rentStatusLabel('pending')}</span>`;
     }
   }
 
-  // Advance badge — show pending, paid-in-full, or overpaid states
+  // Advance badge — show pending, partial, paid-in-full, or overpaid states
   const advBadge = advExpected > 0
-    ? advBalance > 0
-      ? `<span class="badge badge-amber">Advance ${fmtBal(advPaid)}/${fmtBal(advExpected)} — ₹${fmtBal(advBalance)} pending</span>`
-      : advBalance < 0
-        ? `<span class="badge badge-gold">Advance overpaid by ${fmtBal(Math.abs(advBalance))} ✓</span>`
-        : `<span class="badge badge-green">Advance paid ✓</span>`
+    ? adv.status === 'overpaid'
+      ? `<span class="badge badge-gold">${ADVANCE_STATUS_LABELS.overpaid} by ${fmtBal(-advBalance)} ✓</span>`
+      : adv.status === 'paid'
+        ? `<span class="badge badge-green">${ADVANCE_STATUS_LABELS.paid} ✓</span>`
+        : `<span class="badge badge-amber">${ADVANCE_STATUS_LABELS[adv.status]} — ${fmtBal(adv.paid)}/${fmtBal(adv.expected)} (₹${fmtBal(advBalance)} left)</span>`
     : '';
 
   // Check-in badge — gray (not red) within grace period; "scheduled" wording for future bookings
   const checkinBadge = isFutureBooking
     ? `<span class="badge badge-gray">Move-in scheduled</span>`
     : r.has_checkin_receipt
-      ? `<span class="badge badge-green">Check-in done</span>`
+      ? `<span class="badge badge-green">Check-in complete</span>`
       : checkinUrgent
         ? `<span class="badge badge-red">No check-in receipt</span>`
         : `<span class="badge badge-gray">Check-in pending</span>`;
@@ -177,6 +175,36 @@ async function openResidentDetail(id) {
   }
 }
 
+// Line-item accounting breakdown for the resident detail modal. Pulls
+// straight from the rent_this_month/advance fields the backend computes
+// with the shared functions/_ledger.js utility -- the exact same numbers
+// shown on the Rent tab, just laid out with clearer labels here.
+function renderResidentAccountingCard(r) {
+  const rent = r.rent_this_month;
+  const adv = r.advance;
+
+  const rentRows = rent && rent.expected != null ? `
+    <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Expected rent (this month)</div></div><div>${fmtMoney(rent.expected)}</div></div>
+    <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Rent paid</div></div><div style="color:var(--green,#2E7D32);">${fmtMoney(rent.paid)}</div></div>
+    <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Rent due</div></div><div style="${rent.due > 0 ? 'color:var(--red,#B23B3B);font-weight:600;' : ''}">${fmtMoney(Math.max(0, rent.due))}</div></div>
+  ` : `
+    <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Rent</div></div><div>${rentStatusLabel(rent ? rent.status : 'not_due')}</div></div>
+  `;
+
+  const advRows = adv && adv.expected > 0 ? `
+    <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Advance required</div></div><div>${fmtMoney(adv.expected)}</div></div>
+    <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Advance paid</div></div><div style="color:var(--green,#2E7D32);">${fmtMoney(adv.paid)}</div></div>
+    <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Advance due</div></div><div style="${adv.balance > 0 ? 'color:var(--red,#B23B3B);font-weight:600;' : ''}">${adv.balance > 0 ? fmtMoney(adv.balance) : adv.balance < 0 ? `${fmtMoney(-adv.balance)} overpaid` : fmtMoney(0)}</div></div>
+  ` : '';
+
+  return `
+    <div class="card" style="margin-bottom:12px;">
+      <div class="card-title">Accounting — ${monthLabel(new Date().toISOString().slice(0,7))}</div>
+      ${rentRows}
+      ${advRows}
+    </div>`;
+}
+
 function policeVerifBadge(status) {
   if (status === 'verified') return `<span class="badge badge-green">Verified</span>`;
   if (status === 'submitted') return `<span class="badge badge-amber">Submitted</span>`;
@@ -198,13 +226,14 @@ function showResidentDetailModal(r) {
       ${r.aadhaar_number ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Aadhaar</div></div><div>${escapeHtml(r.aadhaar_number)}</div></div>` : ''}
       <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Room</div></div><div>${r.floor || '—'} ${r.room_number || ''}${r.bed_label ? '-' + r.bed_label : ''}</div></div>
       <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Joined</div></div><div>${fmtDate(r.join_date)}</div></div>
-      <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Advance Paid</div></div><div>${fmtMoney(r.advance_paid)}</div></div>
       ${r.occupation ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Occupation</div></div><div>${escapeHtml(r.occupation)}</div></div>` : ''}
       ${r.company_or_college ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Company/College</div></div><div>${escapeHtml(r.company_or_college)}</div></div>` : ''}
       ${r.emergency_contact_name ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Emergency Contact</div></div><div>${escapeHtml(r.emergency_contact_name)} (${escapeHtml(r.emergency_contact_phone || '')})</div></div>` : ''}
       <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Agreement Signed</div></div><div>${r.agreement_signed ? '✅ Yes' : '❌ No'}</div></div>
       <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Police Verification</div></div><div>${policeVerifBadge(r.police_verification_status)}</div></div>
     </div>
+
+    ${renderResidentAccountingCard(r)}
 
     ${(r.aadhaar_photo_url || r.pan_photo_url || r.pan_number || r.aadhaar_back_photo_url || r.passport_photo_url) ? `
       <div class="card" style="margin-bottom:12px;">
@@ -681,9 +710,9 @@ async function submitEditPayment(paymentId) {
 async function submitDeletePayment(paymentId) {
   const note = document.getElementById('ep-note').value.trim();
   if (!note) { showToast('Reason is required before deleting.', 'error'); return; }
-  if (!confirm('Delete this payment permanently?')) return;
+  if (!confirm('Delete this payment? It will be removed from all balances but kept on record for audit.')) return;
   try {
-    await api(`/payments/${paymentId}`, { method: 'DELETE' });
+    await api(`/payments/${paymentId}`, { method: 'DELETE', body: JSON.stringify({ reason: note }) });
     closeModal();
     showToast('Payment deleted.', 'success');
     if (currentOpenResidentId) openResidentDetail(currentOpenResidentId);

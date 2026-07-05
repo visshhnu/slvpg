@@ -1,20 +1,6 @@
 // functions/api/corrections/[id].js
 import { requireAuth, jsonResponse, unauthorized } from '../../_auth.js';
-
-// Recomputes rent_ledger from actual payment rows — always call after any
-// payment edit/delete so the ledger never drifts out of sync.
-async function recomputeLedger(env, rentLedgerId) {
-  if (!rentLedgerId) return;
-  const ledger = await env.DB.prepare('SELECT * FROM rent_ledger WHERE id = ?').bind(rentLedgerId).first();
-  if (!ledger) return;
-  const sum = await env.DB.prepare(
-    'SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE rent_ledger_id = ? AND payment_type = "rent"'
-  ).bind(rentLedgerId).first();
-  const newPaid = sum.total;
-  const newStatus = newPaid >= ledger.amount_due ? 'paid' : newPaid > 0 ? 'partial' : 'pending';
-  await env.DB.prepare('UPDATE rent_ledger SET amount_paid = ?, status = ? WHERE id = ?')
-    .bind(newPaid, newStatus, rentLedgerId).run();
-}
+import { recomputeResidentLedger } from '../../_ledger.js';
 
 export async function onRequestPatch({ request, env, params }) {
   const session = await requireAuth(request, env);
@@ -48,35 +34,41 @@ export async function onRequestPatch({ request, env, params }) {
     if (!payment) return jsonResponse({ error: 'Original payment record not found' }, 404);
 
     if (fix_type === 'remove') {
-      // Payment was entered by mistake — delete it entirely and recompute
+      // Payment was entered by mistake — soft-delete it (stays on record for
+      // audit, but stops counting toward any balance) and recompute.
       if (!resolution_note || resolution_note.trim().length < 5) {
         return jsonResponse({ error: 'A reason is required when removing a payment.' }, 400);
       }
-      await env.DB.prepare('DELETE FROM payments WHERE id = ?').bind(correction.record_id).run();
-      await recomputeLedger(env, payment.rent_ledger_id);
+      await env.DB.prepare(
+        `UPDATE payments SET status = 'deleted', status_note = ?, status_by = ?, status_at = datetime('now') WHERE id = ?`
+      ).bind(resolution_note, session.name, correction.record_id).run();
+      await recomputeResidentLedger(env, payment.resident_id);
 
     } else if (fix_type === 'fix_type') {
       // Payment type is wrong (e.g. advance logged as rent) — change the type
-      // and recompute ledger since rent_ledger only tracks 'rent' payments
+      // and recompute both ledgers, since which one this payment counts
+      // toward depends entirely on payment_type.
       if (!new_payment_type) return jsonResponse({ error: 'new_payment_type required' }, 400);
       await env.DB.prepare('UPDATE payments SET payment_type = ? WHERE id = ?')
         .bind(new_payment_type, correction.record_id).run();
-      await recomputeLedger(env, payment.rent_ledger_id);
+      await recomputeResidentLedger(env, payment.resident_id);
 
     } else if (fix_type === 'fix_amount') {
       // Amount is wrong — update it. Zero allowed only with a mandatory reason,
-      // which then deletes the payment (same as 'remove').
+      // which then soft-deletes the payment (same as 'remove').
       const amt = Number(new_amount);
       if (isNaN(amt) || amt < 0) return jsonResponse({ error: 'new_amount must be 0 or positive' }, 400);
       if (amt === 0) {
         if (!resolution_note || resolution_note.trim().length < 5) {
           return jsonResponse({ error: 'A reason is required when setting amount to zero (this removes the payment).' }, 400);
         }
-        await env.DB.prepare('DELETE FROM payments WHERE id = ?').bind(correction.record_id).run();
+        await env.DB.prepare(
+          `UPDATE payments SET status = 'deleted', status_note = ?, status_by = ?, status_at = datetime('now') WHERE id = ?`
+        ).bind(resolution_note, session.name, correction.record_id).run();
       } else {
         await env.DB.prepare('UPDATE payments SET amount = ? WHERE id = ?').bind(amt, correction.record_id).run();
       }
-      await recomputeLedger(env, payment.rent_ledger_id);
+      await recomputeResidentLedger(env, payment.resident_id);
     }
   }
 
