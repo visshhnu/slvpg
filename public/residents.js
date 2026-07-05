@@ -275,7 +275,7 @@ function showResidentDetailModal(r) {
       r.payments.slice(0, 10).map(p => `
         <div class="list-row">
           <div class="list-row-main">
-            <div class="list-row-title">${fmtMoney(p.amount)} <span style="color:var(--ink-soft);font-weight:500;font-size:12px;">(${p.payment_type})</span></div>
+            <div class="list-row-title">${fmtMoney(p.amount)} <span style="color:var(--ink-soft);font-weight:500;font-size:12px;">(${p.payment_type}${p.ledger_month ? ` — ${monthLabel(p.ledger_month)}` : ''})</span></div>
             <div class="list-row-sub">${fmtDate(p.payment_date)} · ${p.payment_mode} · by ${escapeHtml(p.collected_by || '—')}</div>
           </div>
           <div style="display:flex;gap:6px;">

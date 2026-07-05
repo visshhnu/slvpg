@@ -33,9 +33,17 @@ export async function onRequestGet({ request, env, params }) {
   if (!resident) return jsonResponse({ error: 'Not found' }, 404);
   if (session.role !== 'admin' && resident.pg_id !== session.pgId) return unauthorized();
 
-  const { results: payments } = await env.DB.prepare(
-    `SELECT * FROM payments WHERE resident_id = ? AND status = 'posted' ORDER BY payment_date DESC`
-  ).bind(params.id).all();
+  // ledger_month lets the payment-history UI label a rent payment "for July
+  // 2026" etc. -- without it, two real payments for two different months
+  // (e.g. this month's rent collected a day early, alongside last month's)
+  // are indistinguishable from an accidental duplicate entry at a glance.
+  const { results: payments } = await env.DB.prepare(`
+    SELECT p.*, rl.month as ledger_month
+    FROM payments p
+    LEFT JOIN rent_ledger rl ON rl.id = p.rent_ledger_id
+    WHERE p.resident_id = ? AND p.status = 'posted'
+    ORDER BY p.payment_date DESC
+  `).bind(params.id).all();
 
   const { results: ledger } = await env.DB.prepare(
     'SELECT * FROM rent_ledger WHERE resident_id = ? ORDER BY month DESC'

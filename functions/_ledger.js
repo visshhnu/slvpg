@@ -33,6 +33,7 @@ export const PAYMENT_STATUSES = ['posted', 'deleted', 'voided', 'refunded'];
 //    caught up to that month yet.
 export async function ensureLedgerRows(env, pgId, month) {
   const today = new Date().toISOString().slice(0, 10);
+  const isRealCurrentMonth = month === today.slice(0, 7);
   const { results: dueResidents } = await env.DB.prepare(`
     SELECT res.id, res.custom_rent, r.monthly_rent
     FROM residents res
@@ -46,19 +47,45 @@ export async function ensureLedgerRows(env, pgId, month) {
   const dueDate = `${month}-05`;
 
   for (const res of dueResidents) {
-    const exists = await env.DB.prepare(
-      'SELECT id FROM rent_ledger WHERE resident_id = ? AND month = ?'
+    // custom_rent (per-bed override) wins over the room's shared monthly_rent
+    const expectedAmount = res.custom_rent != null ? res.custom_rent : res.monthly_rent;
+
+    const existing = await env.DB.prepare(
+      'SELECT id, amount_due FROM rent_ledger WHERE resident_id = ? AND month = ?'
     ).bind(res.id, month).first();
 
-    if (!exists) {
-      // custom_rent (per-bed override) wins over the room's shared monthly_rent
-      const amount = res.custom_rent != null ? res.custom_rent : res.monthly_rent;
+    if (!existing) {
       await env.DB.prepare(
         `INSERT INTO rent_ledger (pg_id, resident_id, month, due_date, amount_due, status)
          VALUES (?, ?, ?, ?, ?, 'pending')`
-      ).bind(pgId, res.id, month, dueDate, amount).run();
+      ).bind(pgId, res.id, month, dueDate, expectedAmount).run();
+    } else if (isRealCurrentMonth && existing.amount_due !== expectedAmount) {
+      // The room's monthly_rent or the resident's custom_rent was edited
+      // AFTER this month's ledger row was already created -- that row was a
+      // one-time snapshot and never re-synced on its own. Only self-heal the
+      // real, still-open current month (never a past month someone is just
+      // viewing on the Rent tab) so a closed month's history never shifts.
+      await recomputeRentLedgerRow(env, existing.id, expectedAmount);
     }
   }
+}
+
+// Re-derives one rent_ledger row's amount_paid/status against a given
+// amount_due (which may have just changed), off the payments actually
+// linked to it. Shared by ensureLedgerRows' self-heal and
+// recomputeResidentLedger below, so there is exactly one formula.
+async function recomputeRentLedgerRow(env, rentLedgerId, amountDue) {
+  const sum = await env.DB.prepare(`
+    SELECT COALESCE(SUM(amount), 0) as total FROM payments
+    WHERE rent_ledger_id = ? AND payment_type = 'rent' AND status = ?
+  `).bind(rentLedgerId, POSTED).first();
+
+  const paid = Math.min(sum.total, amountDue);
+  const status = paid >= amountDue ? 'paid' : paid > 0 ? 'partial' : 'pending';
+
+  await env.DB.prepare(
+    'UPDATE rent_ledger SET amount_due = ?, amount_paid = ?, status = ? WHERE id = ?'
+  ).bind(amountDue, paid, status, rentLedgerId).run();
 }
 
 // Re-derives every rent_ledger row and residents.advance_paid for one
@@ -74,17 +101,7 @@ export async function recomputeResidentLedger(env, residentId) {
   ).bind(residentId).all();
 
   for (const row of ledgerRows) {
-    const sum = await env.DB.prepare(`
-      SELECT COALESCE(SUM(amount), 0) as total FROM payments
-      WHERE rent_ledger_id = ? AND payment_type = 'rent' AND status = ?
-    `).bind(row.id, POSTED).first();
-
-    const paid = Math.min(sum.total, row.amount_due);
-    const status = paid >= row.amount_due ? 'paid' : paid > 0 ? 'partial' : 'pending';
-
-    await env.DB.prepare(
-      'UPDATE rent_ledger SET amount_paid = ?, status = ? WHERE id = ?'
-    ).bind(paid, status, row.id).run();
+    await recomputeRentLedgerRow(env, row.id, row.amount_due);
   }
 
   const advanceSum = await env.DB.prepare(`
