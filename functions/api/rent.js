@@ -56,7 +56,7 @@ export async function onRequestGet({ request, env }) {
       ? await env.DB.prepare(`
           SELECT id, amount, payment_mode, payment_type, payment_date, reference_note, collected_by
           FROM payments
-          WHERE rent_ledger_id = ? AND status = 'posted'
+          WHERE rent_ledger_id = ? AND status IN ('posted', 'migrated')
           ORDER BY payment_date ASC, created_at ASC
         `).bind(row.id).all()
       : { results: [] };

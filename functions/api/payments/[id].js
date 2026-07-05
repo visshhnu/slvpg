@@ -69,8 +69,8 @@ export async function onRequestDelete({ request, env, params }) {
 
   // Soft delete: the row stays on record (status='deleted') instead of
   // vanishing, so there's an audit trail of what was removed and why. Every
-  // balance calculation filters to status='posted', so a deleted payment
-  // stops counting immediately.
+  // balance calculation filters to status IN ('posted','migrated'), so a
+  // deleted payment stops counting immediately.
   await env.DB.prepare(
     `UPDATE payments SET status = 'deleted', status_note = ?, status_by = ?, status_at = datetime('now') WHERE id = ?`
   ).bind(reason, session.name, params.id).run();

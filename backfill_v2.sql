@@ -1,112 +1,139 @@
 -- =====================================================================
--- Precise backfill based on the real spreadsheet figures (confirmed by
--- owner). DO NOT also run the earlier backfill_advance.sql — skip that
--- one entirely, this replaces it with exact dates instead of guesses.
+-- *** ALREADY APPLIED TO PRODUCTION -- DO NOT RUN AGAIN ***
 --
--- For each person: sets residents.advance_paid to the CONFIRMED real
--- total, and inserts one matching payments row dated as told. For the
--- two people who paid rent in full too (Vaugunth, C. Pavan), also logs
--- the rent payment and updates their June rent_ledger row so the Rent
--- tab shows them correctly going forward.
+-- This file ran once against the live database as a one-time spreadsheet
+-- recovery. It is kept here only as a historical record of where that data
+-- came from. It is NOT part of migrations/ and wrangler will never track
+-- or protect it -- nothing stops a human from executing it a second time
+-- with `wrangler d1 execute --file=backfill_v2.sql --remote`.
+--
+-- Audited 2026-07-06 and retrofitted for safety:
+--   - Every INSERT is now `INSERT OR IGNORE` with an explicit
+--     source_import_key. A second run collides with the unique index on
+--     that column (migrations/0010_migration_safety.sql) and becomes a
+--     silent no-op instead of a duplicate.
+--   - Three entries below were found, during that audit, to no longer
+--     match reality (either factually wrong, or superseded by a later
+--     live correction) and have been removed rather than made idempotent
+--     -- being a safe no-op on rerun is not the same as being correct, and
+--     these specific rows should never be re-inserted in any form:
+--       * Arun Kumar's ₹1,000 advance (originally item 2) -- a staff
+--         member later hand-corrected his real advance to ₹7,000
+--         directly on the live payment row; re-inserting the original
+--         ₹1,000 figure would double count on top of that correction.
+--       * Ajay's ₹5,000 advance (originally item 4) -- fully superseded
+--         by a single real ₹15,000 advance payment entered live on
+--         2026-07-05; re-inserting this would leave him wrongly showing
+--         ₹20,000 paid against a ₹15,000 deposit.
+--       * C. Pavan's ₹11,000 June rent (part of original item 8) -- he
+--         joined 1 Jul 2026 and was never a resident in June, so he never
+--         owed June rent at all. This exact row was already soft-deleted
+--         (payments.status='deleted') during the 2026-07-06 audit; his
+--         advance portion below is unaffected and still correct.
 -- =====================================================================
 
 -- 1) Yogesh Kumar — correct join date: sheet says "27th joined", not 1 Jul
---    (this is exactly the scenario the join-date edit feature was built for)
+--    (idempotent on its own: setting the same date twice is harmless)
 UPDATE residents SET join_date = '2026-06-27'
-WHERE name LIKE '%Yogesh%';
+WHERE name LIKE '%Yogesh%' AND join_date != '2026-06-27';
 
--- 2) Arun Kumar — ₹1,000 advance, paid 27 June 2026 (assumed advance; flag if wrong)
-UPDATE residents SET advance_paid = 1000 WHERE phone = '8438248404';
-INSERT INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note)
-SELECT pg_id, id, 1000, '2026-06-27', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet'
-FROM residents WHERE phone = '8438248404';
+-- 2) Arun Kumar — REMOVED. See header: superseded by a hand-corrected
+--    ₹7,000 live payment. Do not re-add the original ₹1,000 entry.
 
--- 3) Vaugunth — rent ₹10,500 (full) + advance ₹5,000 (full), both 22 June 2026
-UPDATE residents SET advance_paid = 5000 WHERE phone = '6381238635';
-INSERT INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note)
-SELECT pg_id, id, 5000, '2026-06-22', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet'
+-- 3) Vaugunth — advance ₹5,000 (full), 22 June 2026.
+--    (The ₹10,500 June rent portion of this item was superseded by a live
+--    "Durga Pratima" rent payment and has been removed from this file.)
+INSERT OR IGNORE INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note, status, source_import_key)
+SELECT pg_id, id, 5000, '2026-06-22', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet', 'migrated',
+  'legacy:' || id || ':advance:5000:2026-06-22'
 FROM residents WHERE phone = '6381238635';
 
-INSERT INTO rent_ledger (pg_id, resident_id, month, due_date, amount_due, amount_paid, status)
-SELECT res.pg_id, res.id, '2026-06', '2026-06-05', COALESCE(res.custom_rent, r.monthly_rent), 0, 'pending'
-FROM residents res LEFT JOIN beds b ON b.id = res.bed_id LEFT JOIN rooms r ON r.id = b.room_id
-WHERE res.phone = '6381238635'
-  AND NOT EXISTS (SELECT 1 FROM rent_ledger WHERE resident_id = res.id AND month = '2026-06');
+UPDATE residents SET advance_paid = (
+  SELECT COALESCE(SUM(amount), 0) FROM payments
+  WHERE payments.resident_id = residents.id AND payment_type = 'advance' AND status IN ('posted', 'migrated')
+) WHERE phone = '6381238635';
 
-INSERT INTO payments (pg_id, resident_id, rent_ledger_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note)
-SELECT res.pg_id, res.id, rl.id, 10500, '2026-06-22', 'cash', 'rent', 'Backfill', 'Backfilled from spreadsheet'
-FROM residents res JOIN rent_ledger rl ON rl.resident_id = res.id AND rl.month = '2026-06'
-WHERE res.phone = '6381238635';
-
-UPDATE rent_ledger SET
-  amount_paid = amount_paid + 10500,
-  status = CASE WHEN amount_paid + 10500 >= amount_due THEN 'paid' ELSE 'partial' END
-WHERE resident_id = (SELECT id FROM residents WHERE phone = '6381238635') AND month = '2026-06';
-
--- 4) Aijay / Ajay raja pandiyan — ₹5,000 advance, 19 June 2026
-UPDATE residents SET advance_paid = 5000 WHERE phone = '9500761400';
-INSERT INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note)
-SELECT pg_id, id, 5000, '2026-06-19', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet'
-FROM residents WHERE phone = '9500761400';
+-- 4) Ajay / Ajay raja pandiyan — REMOVED. See header: fully superseded by
+--    a real ₹15,000 advance payment entered live on 2026-07-05.
 
 -- 5) Yogesh Kumar — ₹10,000 advance, 27 June 2026
-UPDATE residents SET advance_paid = 10000 WHERE name LIKE '%Yogesh%';
-INSERT INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note)
-SELECT pg_id, id, 10000, '2026-06-27', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet'
+INSERT OR IGNORE INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note, status, source_import_key)
+SELECT pg_id, id, 10000, '2026-06-27', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet', 'migrated',
+  'legacy:' || id || ':advance:10000:2026-06-27'
 FROM residents WHERE name LIKE '%Yogesh%';
 
--- 6) Dinkar Sharma — ₹5,000 advance (no exact date given — using today as a
---    placeholder; correct it later via Payments admin edit if you know the real date)
-UPDATE residents SET advance_paid = 5000 WHERE phone = '9717882017';
-INSERT INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note)
-SELECT pg_id, id, 5000, '2026-06-30', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet — date approximate'
+UPDATE residents SET advance_paid = (
+  SELECT COALESCE(SUM(amount), 0) FROM payments
+  WHERE payments.resident_id = residents.id AND payment_type = 'advance' AND status IN ('posted', 'migrated')
+) WHERE name LIKE '%Yogesh%';
+
+-- 6) Dinkar Sharma — ₹5,000 advance (date approximate)
+INSERT OR IGNORE INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note, status, source_import_key)
+SELECT pg_id, id, 5000, '2026-06-30', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet — date approximate', 'migrated',
+  'legacy:' || id || ':advance:5000:2026-06-30'
 FROM residents WHERE phone = '9717882017';
 
+UPDATE residents SET advance_paid = (
+  SELECT COALESCE(SUM(amount), 0) FROM payments
+  WHERE payments.resident_id = residents.id AND payment_type = 'advance' AND status IN ('posted', 'migrated')
+) WHERE phone = '9717882017';
+
 -- 7) Adit Garg — ₹5,000 advance (date approximate)
-UPDATE residents SET advance_paid = 5000 WHERE phone = '7668134518';
-INSERT INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note)
-SELECT pg_id, id, 5000, '2026-06-30', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet — date approximate'
+INSERT OR IGNORE INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note, status, source_import_key)
+SELECT pg_id, id, 5000, '2026-06-30', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet — date approximate', 'migrated',
+  'legacy:' || id || ':advance:5000:2026-06-30'
 FROM residents WHERE phone = '7668134518';
 
--- 8) C. Pavan — rent ₹11,000 (full) + advance ₹10,000 (full), both 30 June 2026 (today)
-UPDATE residents SET advance_paid = 10000 WHERE phone = '9989929460';
-INSERT INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note)
-SELECT pg_id, id, 10000, '2026-06-30', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet'
+UPDATE residents SET advance_paid = (
+  SELECT COALESCE(SUM(amount), 0) FROM payments
+  WHERE payments.resident_id = residents.id AND payment_type = 'advance' AND status IN ('posted', 'migrated')
+) WHERE phone = '7668134518';
+
+-- 8) C. Pavan — advance ₹10,000 (full), 30 June 2026.
+--    (The ₹11,000 rent portion of this item was factually wrong -- see
+--    header -- and has been removed from this file entirely.)
+INSERT OR IGNORE INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note, status, source_import_key)
+SELECT pg_id, id, 10000, '2026-06-30', 'upi', 'advance', 'Backfill', 'Phonepay paid', 'migrated',
+  'legacy:' || id || ':advance:10000:2026-06-30'
 FROM residents WHERE phone = '9989929460';
 
-INSERT INTO rent_ledger (pg_id, resident_id, month, due_date, amount_due, amount_paid, status)
-SELECT res.pg_id, res.id, '2026-06', '2026-06-05', COALESCE(res.custom_rent, r.monthly_rent), 0, 'pending'
-FROM residents res LEFT JOIN beds b ON b.id = res.bed_id LEFT JOIN rooms r ON r.id = b.room_id
-WHERE res.phone = '9989929460'
-  AND NOT EXISTS (SELECT 1 FROM rent_ledger WHERE resident_id = res.id AND month = '2026-06');
-
-INSERT INTO payments (pg_id, resident_id, rent_ledger_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note)
-SELECT res.pg_id, res.id, rl.id, 11000, '2026-06-30', 'cash', 'rent', 'Backfill', 'Backfilled from spreadsheet'
-FROM residents res JOIN rent_ledger rl ON rl.resident_id = res.id AND rl.month = '2026-06'
-WHERE res.phone = '9989929460';
-
-UPDATE rent_ledger SET
-  amount_paid = amount_paid + 11000,
-  status = CASE WHEN amount_paid + 11000 >= amount_due THEN 'paid' ELSE 'partial' END
-WHERE resident_id = (SELECT id FROM residents WHERE phone = '9989929460') AND month = '2026-06';
+UPDATE residents SET advance_paid = (
+  SELECT COALESCE(SUM(amount), 0) FROM payments
+  WHERE payments.resident_id = residents.id AND payment_type = 'advance' AND status IN ('posted', 'migrated')
+) WHERE phone = '9989929460';
 
 -- 9) Akshat Rana — ₹5,000 advance (date approximate)
-UPDATE residents SET advance_paid = 5000 WHERE phone = '8510098498';
-INSERT INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note)
-SELECT pg_id, id, 5000, '2026-06-30', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet — date approximate'
+INSERT OR IGNORE INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note, status, source_import_key)
+SELECT pg_id, id, 5000, '2026-06-30', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet — date approximate', 'migrated',
+  'legacy:' || id || ':advance:5000:2026-06-30'
 FROM residents WHERE phone = '8510098498';
 
+UPDATE residents SET advance_paid = (
+  SELECT COALESCE(SUM(amount), 0) FROM payments
+  WHERE payments.resident_id = residents.id AND payment_type = 'advance' AND status IN ('posted', 'migrated')
+) WHERE phone = '8510098498';
+
 -- 10) Manoj Hansda — ₹15,000 advance (date approximate; this is his full advance)
-UPDATE residents SET advance_paid = 15000 WHERE phone = '9717400696';
-INSERT INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note)
-SELECT pg_id, id, 15000, '2026-06-30', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet — date approximate'
+INSERT OR IGNORE INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note, status, source_import_key)
+SELECT pg_id, id, 15000, '2026-06-30', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet — date approximate', 'migrated',
+  'legacy:' || id || ':advance:15000:2026-06-30'
 FROM residents WHERE phone = '9717400696';
 
+UPDATE residents SET advance_paid = (
+  SELECT COALESCE(SUM(amount), 0) FROM payments
+  WHERE payments.resident_id = residents.id AND payment_type = 'advance' AND status IN ('posted', 'migrated')
+) WHERE phone = '9717400696';
+
 -- 11) Meyyapan — ₹2,000 advance (date approximate)
-UPDATE residents SET advance_paid = 2000 WHERE phone = '8903042799';
-INSERT INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note)
-SELECT pg_id, id, 2000, '2026-06-30', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet — date approximate'
+INSERT OR IGNORE INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note, status, source_import_key)
+SELECT pg_id, id, 2000, '2026-06-30', 'cash', 'advance', 'Backfill', 'Backfilled from spreadsheet — date approximate', 'migrated',
+  'legacy:' || id || ':advance:2000:2026-06-30'
 FROM residents WHERE phone = '8903042799';
+
+UPDATE residents SET advance_paid = (
+  SELECT COALESCE(SUM(amount), 0) FROM payments
+  WHERE payments.resident_id = residents.id AND payment_type = 'advance' AND status IN ('posted', 'migrated')
+) WHERE phone = '8903042799';
 
 -- Sakti and Mohammed Imdad: already correct in the app, intentionally untouched.
 -- Veera Kumar: no payment recorded in the spreadsheet, intentionally untouched.

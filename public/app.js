@@ -186,6 +186,21 @@ const TAB_TITLES = {
   rent: 'Rent Collection',
   expenses: 'Expenses',
   settings: 'Settings',
+  reports: 'Reports',
+};
+
+// Short, tab-specific description shown next to the PG name in the header,
+// so the page identity is never just a title alone -- Reports had no entry
+// here or in TAB_TITLES at all before, so opening it left the header
+// showing whatever the previous tab's title happened to be.
+const TAB_SUBTITLES = {
+  dashboard: "Today's activity & occupancy",
+  rooms: 'Floors, rooms & beds',
+  residents: 'Profiles, documents & status',
+  rent: 'Collect & track rent, floor by floor',
+  expenses: 'Outgoings & vendor payments',
+  settings: 'Staff & PG configuration',
+  reports: 'Financial summaries & exports',
 };
 
 function switchTab(tab) {
@@ -194,6 +209,7 @@ function switchTab(tab) {
   document.getElementById(`screen-${tab}`).classList.add('active');
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.getElementById('screen-title').textContent = TAB_TITLES[tab];
+  document.getElementById('tab-subtitle').textContent = TAB_SUBTITLES[tab] || '';
 
   const fab = document.getElementById('fab-btn');
   fab.classList.remove('hidden');

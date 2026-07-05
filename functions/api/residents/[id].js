@@ -41,7 +41,7 @@ export async function onRequestGet({ request, env, params }) {
     SELECT p.*, rl.month as ledger_month
     FROM payments p
     LEFT JOIN rent_ledger rl ON rl.id = p.rent_ledger_id
-    WHERE p.resident_id = ? AND p.status = 'posted'
+    WHERE p.resident_id = ? AND p.status IN ('posted', 'migrated')
     ORDER BY p.payment_date DESC
   `).bind(params.id).all();
 

@@ -58,7 +58,7 @@ export async function onRequestGet({ request, env }) {
     JOIN residents res ON res.id = p.resident_id
     LEFT JOIN beds b ON b.id = res.bed_id
     LEFT JOIN rooms r ON r.id = b.room_id
-    WHERE p.pg_id = ? AND p.status = 'posted'
+    WHERE p.pg_id = ? AND p.status IN ('posted', 'migrated')
   `;
   const binds = [pgId];
 

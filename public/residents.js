@@ -703,7 +703,7 @@ async function submitEditPayment(paymentId) {
     });
     closeModal();
     showToast('Payment updated.', 'success');
-    if (currentOpenResidentId) openResidentDetail(currentOpenResidentId);
+    await refreshAfterPaymentChange();
   } catch (e) { showToast(e.message, 'error'); }
 }
 
@@ -715,8 +715,22 @@ async function submitDeletePayment(paymentId) {
     await api(`/payments/${paymentId}`, { method: 'DELETE', body: JSON.stringify({ reason: note }) });
     closeModal();
     showToast('Payment deleted.', 'success');
-    if (currentOpenResidentId) openResidentDetail(currentOpenResidentId);
+    await refreshAfterPaymentChange();
   } catch (e) { showToast(e.message, 'error'); }
+}
+
+// Editing/deleting a payment changes balances that the Residents list, the
+// Rent tab and the currently-open resident detail modal all show -- but
+// only the detail modal used to refresh itself. If staff then closed the
+// modal without switching tabs, the Residents card (and Rent tab, if they'd
+// visited it this session) kept showing pre-edit numbers until something
+// else happened to reload them. Refresh every one of those in the
+// background here so nothing is left stale after an edit/delete.
+async function refreshAfterPaymentChange() {
+  const tasks = [loadResidents()];
+  if (state.rentData) tasks.push(loadRent());
+  await Promise.all(tasks);
+  if (currentOpenResidentId) await openResidentDetail(currentOpenResidentId);
 }
 
 // ---- Flag a correction (staff-facing, on payments/expenses) ----

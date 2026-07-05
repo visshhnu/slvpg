@@ -81,7 +81,14 @@ body {
   font-weight: 600;
   letter-spacing: 0.5px;
   text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+/* Per-tab description (e.g. "Collect & track rent") sits before the PG
+   name, so the header always answers "what screen is this and for which
+   PG" instead of only the PG name on its own. */
+#tab-subtitle:not(:empty)::after { content: ' · '; }
 .header-action {
   background: rgba(255,255,255,0.12);
   border: 1px solid rgba(255,255,255,0.2);
@@ -254,6 +261,7 @@ label {
   padding-bottom: env(safe-area-inset-bottom);
 }
 .tab-btn {
+  position: relative;
   flex: 1;
   background: none;
   border: none;
@@ -261,13 +269,39 @@ label {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   cursor: pointer;
   color: var(--ink-soft);
 }
+/* Active-tab identity: three reinforcing signals at once (top accent bar,
+   pill background behind the icon, bolder ink colour on icon+label) so
+   which screen is open is obvious at a glance, not just a faint tint. */
+.tab-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 26px;
+  height: 3px;
+  border-radius: 0 0 4px 4px;
+  background: transparent;
+}
+.tab-btn.active::before { background: var(--gold); }
 .tab-btn.active { color: var(--navy); }
+.tab-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 26px;
+  border-radius: 9px;
+  background: transparent;
+}
+.tab-btn.active .tab-icon-wrap { background: var(--amber-bg); }
 .tab-btn svg { width: 22px; height: 22px; }
 .tab-label { font-size: 10.5px; font-weight: 700; }
+.tab-btn.active .tab-label { color: var(--navy); font-weight: 800; }
 
 .empty-state {
   text-align: center;
@@ -489,7 +523,7 @@ label {
     <img class="arch-mark" src="/logo.png" alt="SLV Luxury PG">
     <div class="header-text" id="pg-switcher" onclick="openPgSwitcher()">
       <div class="header-title" id="screen-title">Dashboard</div>
-      <div class="header-sub" id="pg-name-label">—</div>
+      <div class="header-sub"><span id="tab-subtitle"></span><span id="pg-name-label">—</span></div>
     </div>
     <button class="header-action" onclick="doLogout()">Logout</button>
   </header>
@@ -508,27 +542,27 @@ label {
 
   <nav class="tabbar">
     <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+      <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></span>
       <span class="tab-label">Home</span>
     </button>
     <button class="tab-btn" data-tab="rooms" onclick="switchTab('rooms')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21V12h6v9"/></svg>
+      <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21V12h6v9"/></svg></span>
       <span class="tab-label">Rooms</span>
     </button>
     <button class="tab-btn" data-tab="residents" onclick="switchTab('residents')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+      <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></span>
       <span class="tab-label">Residents</span>
     </button>
     <button class="tab-btn" data-tab="rent" onclick="switchTab('rent')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5h4.5a1.8 1.8 0 010 3.6H9.8a1.8 1.8 0 000 3.6H15"/></svg>
+      <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5h4.5a1.8 1.8 0 010 3.6H9.8a1.8 1.8 0 000 3.6H15"/></svg></span>
       <span class="tab-label">Rent</span>
     </button>
     <button class="tab-btn" data-tab="expenses" onclick="switchTab('expenses')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 12h18M3 17h18"/></svg>
+      <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 12h18M3 17h18"/></svg></span>
       <span class="tab-label">Expenses</span>
     </button>
     <button class="tab-btn" data-tab="reports" onclick="switchTab('reports')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
       <span class="tab-label">Reports</span>
     </button>
   </nav>

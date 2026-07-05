@@ -12,7 +12,14 @@
 // all. There is now exactly one formula for each figure.
 
 export const POSTED = 'posted';
-export const PAYMENT_STATUSES = ['posted', 'deleted', 'voided', 'refunded'];
+// 'migrated' = a payment inserted by a one-time historical/spreadsheet
+// import script rather than live app entry. It counts toward balances
+// exactly like 'posted' (it's real money) -- the distinct status only
+// exists so audits/reports can tell the two apart. Nothing else (deleted/
+// voided/refunded) counts toward any total; see ACTIVE_STATUSES below.
+export const PAYMENT_STATUSES = ['posted', 'deleted', 'voided', 'refunded', 'migrated'];
+export const ACTIVE_STATUSES = ['posted', 'migrated'];
+const ACTIVE_STATUS_SQL = "('posted', 'migrated')";
 
 // Make sure every resident who has actually moved in by `month` has a
 // rent_ledger row for it. Deliberately does NOT use `status IN ('active',
@@ -77,8 +84,8 @@ export async function ensureLedgerRows(env, pgId, month) {
 async function recomputeRentLedgerRow(env, rentLedgerId, amountDue) {
   const sum = await env.DB.prepare(`
     SELECT COALESCE(SUM(amount), 0) as total FROM payments
-    WHERE rent_ledger_id = ? AND payment_type = 'rent' AND status = ?
-  `).bind(rentLedgerId, POSTED).first();
+    WHERE rent_ledger_id = ? AND payment_type = 'rent' AND status IN ${ACTIVE_STATUS_SQL}
+  `).bind(rentLedgerId).first();
 
   const paid = Math.min(sum.total, amountDue);
   const status = paid >= amountDue ? 'paid' : paid > 0 ? 'partial' : 'pending';
@@ -106,8 +113,8 @@ export async function recomputeResidentLedger(env, residentId) {
 
   const advanceSum = await env.DB.prepare(`
     SELECT COALESCE(SUM(amount), 0) as total FROM payments
-    WHERE resident_id = ? AND payment_type = 'advance' AND status = ?
-  `).bind(residentId, POSTED).first();
+    WHERE resident_id = ? AND payment_type = 'advance' AND status IN ${ACTIVE_STATUS_SQL}
+  `).bind(residentId).first();
 
   await env.DB.prepare(
     'UPDATE residents SET advance_paid = ? WHERE id = ?'

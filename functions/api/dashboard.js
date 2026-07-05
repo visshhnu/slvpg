@@ -109,8 +109,8 @@ export async function onRequestGet({ request, env }) {
     `).bind(pgId).all(),
     // Period-based actuals: driven by real transaction dates, so any range works
     // (yesterday, today, 7 days, custom — not just "this calendar month").
-    env.DB.prepare(`SELECT amount FROM payments WHERE pg_id = ? AND payment_type = 'rent' AND payment_date BETWEEN ? AND ?`).bind(pgId, period.from, period.to).all(),
-    env.DB.prepare(`SELECT amount FROM payments WHERE pg_id = ? AND payment_type = 'advance' AND payment_date BETWEEN ? AND ?`).bind(pgId, period.from, period.to).all(),
+    env.DB.prepare(`SELECT amount FROM payments WHERE pg_id = ? AND payment_type = 'rent' AND status IN ('posted', 'migrated') AND payment_date BETWEEN ? AND ?`).bind(pgId, period.from, period.to).all(),
+    env.DB.prepare(`SELECT amount FROM payments WHERE pg_id = ? AND payment_type = 'advance' AND status IN ('posted', 'migrated') AND payment_date BETWEEN ? AND ?`).bind(pgId, period.from, period.to).all(),
     env.DB.prepare(`SELECT category, amount FROM expenses WHERE pg_id = ? AND expense_date BETWEEN ? AND ?`).bind(pgId, period.from, period.to).all(),
     // Bookings (by actual join_date, not when the record was entered into the
     // system) — works for past joins AND future/upcoming bookings, since a
