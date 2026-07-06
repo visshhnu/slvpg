@@ -199,6 +199,7 @@ const TAB_TITLES = {
   expenses: 'Expenses',
   settings: 'Settings',
   reports: 'Reports',
+  menu: 'Menu',
 };
 
 // Short, tab-specific description shown next to the PG name in the header,
@@ -213,13 +214,25 @@ const TAB_SUBTITLES = {
   expenses: 'Operational spending and monthly expense tracking',
   settings: 'Staff & PG configuration',
   reports: 'Financial summaries, exports, and printable statements',
+  menu: 'Reports, settings, and more',
 };
+
+// Reports and Settings no longer have their own bottom-nav slot -- they're
+// opened from inside the Menu tab instead (see loadMenu below), which is
+// what actually fixed Settings being completely unreachable (there was no
+// button anywhere that called switchTab('settings') at all). Both screens
+// still exist and work exactly as before; only navigation into them moved.
+// Grouping them under "menu" here just keeps the bottom nav's active-tab
+// highlight lit on Menu while you're inside either one, instead of showing
+// no tab selected at all.
+const MENU_GROUP_TABS = ['reports', 'settings', 'menu'];
 
 function switchTab(tab) {
   state.currentTab = tab;
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(`screen-${tab}`).classList.add('active');
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  const navHighlight = MENU_GROUP_TABS.includes(tab) ? 'menu' : tab;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === navHighlight));
   document.getElementById('screen-title').textContent = TAB_TITLES[tab];
   document.getElementById('tab-subtitle').textContent = TAB_SUBTITLES[tab] || '';
 
@@ -232,7 +245,7 @@ function switchTab(tab) {
     else if (tab === 'settings') openAddStaffModal();
     else fab.classList.add('hidden');
   };
-  if (tab === 'dashboard' || tab === 'rent') fab.classList.add('hidden');
+  if (tab === 'dashboard' || tab === 'rent' || tab === 'menu') fab.classList.add('hidden');
   if (tab === 'settings' && state.staff.role !== 'admin') fab.classList.add('hidden');
 
   const loaders = {
@@ -243,8 +256,37 @@ function switchTab(tab) {
     expenses: loadExpenses,
     settings: loadSettings,
     reports: loadReports,
+    menu: loadMenu,
   };
   loaders[tab]();
+}
+
+// Landing screen for the Menu tab -- currently just Reports and Settings,
+// but the whole point of moving them here (instead of trying to squeeze a
+// 7th/8th icon into the bottom nav) is that adding a third or fourth item
+// later is just another card in this list, not a bottom-nav redesign.
+const MENU_ITEMS = [
+  { tab: 'reports',  icon: '📊', title: 'Reports',  desc: TAB_SUBTITLES.reports },
+  { tab: 'settings', icon: '⚙️', title: 'Settings', desc: TAB_SUBTITLES.settings },
+];
+
+function loadMenu() {
+  const el = document.getElementById('screen-menu');
+  el.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      ${MENU_ITEMS.map(item => `
+        <button onclick="switchTab('${item.tab}')" style="
+          background:var(--card);border:1.5px solid var(--border);border-radius:12px;
+          padding:14px;text-align:left;cursor:pointer;display:flex;align-items:center;gap:14px;width:100%;">
+          <div style="font-size:22px;width:36px;text-align:center;">${item.icon}</div>
+          <div>
+            <div style="font-weight:700;font-size:14px;color:var(--navy);">${escapeHtml(item.title)}</div>
+            <div style="font-size:11.5px;color:var(--ink-soft);margin-top:2px;">${escapeHtml(item.desc)}</div>
+          </div>
+        </button>
+      `).join('')}
+    </div>
+  `;
 }
 
 function closeModal() {
