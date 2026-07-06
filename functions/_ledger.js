@@ -199,29 +199,48 @@ export const ADVANCE_STATUS_LABELS = {
 
 // Detects the handful of situations that should surface in the Rent page's
 // "Exceptions" section instead of blending into the normal paid/due list --
-// things a manager needs to notice and act on, not just a balance to
-// collect. Computed here (not per-screen) so Rent and Residents can't end
-// up disagreeing about which residents need attention.
+// things a manager needs to notice and ACT on, not just a balance to
+// collect, and not something already closed out. Computed here (not
+// per-screen) so Rent and Residents can't end up disagreeing about which
+// residents need attention.
+//
+// A resolved deletion/void with a clear audit note is deliberately NOT an
+// exception here -- it already happened and was explained; there is
+// nothing left to do about it. Surfacing it as "needs attention" for two
+// weeks after the fact just trains people to ignore this section. If you
+// need a history of what was corrected and why, that's what payments.status
+// + status_note + status_at already preserve on the row itself.
 const SUSPICIOUS_NOTE_PATTERN = /wrong|duplicate|mistake|error|discrepanc|double/i;
 
-export async function detectResidentExceptions(env, residentId, advanceState) {
-  const exceptions = [];
+// Batched for the whole PG in a fixed 2 queries total, NOT per resident --
+// the previous per-resident version ran 3 queries for every billed
+// resident (42 extra round-trips for a 14-resident PG on every single Rent
+// tab load), which was the actual cause of the page feeling slow.
+export async function detectExceptionsForPg(env, pgId, advanceStateByResident) {
+  const exceptionsByResident = new Map();
+  const add = (residentId, exc) => {
+    if (!exceptionsByResident.has(residentId)) exceptionsByResident.set(residentId, []);
+    exceptionsByResident.get(residentId).push(exc);
+  };
 
-  if (advanceState && advanceState.status === 'overpaid') {
-    exceptions.push({
-      type: 'overpaid_advance',
-      label: 'Advance overpaid',
-      detail: `Paid ₹${advanceState.paid.toLocaleString('en-IN')} against a ₹${advanceState.expected.toLocaleString('en-IN')} deposit -- ₹${Math.abs(advanceState.balance).toLocaleString('en-IN')} over.`,
-    });
+  for (const [residentId, advanceState] of advanceStateByResident) {
+    if (advanceState && advanceState.status === 'overpaid') {
+      add(residentId, {
+        type: 'overpaid_advance',
+        label: 'Advance overpaid',
+        detail: `Paid ₹${advanceState.paid.toLocaleString('en-IN')} against a ₹${advanceState.expected.toLocaleString('en-IN')} deposit -- ₹${Math.abs(advanceState.balance).toLocaleString('en-IN')} over.`,
+      });
+    }
   }
 
   const { results: flaggedPayments } = await env.DB.prepare(`
-    SELECT id, amount, reference_note, payment_date FROM payments
-    WHERE resident_id = ? AND status IN ${ACTIVE_STATUS_SQL} AND reference_note IS NOT NULL
-  `).bind(residentId).all();
+    SELECT p.id, p.resident_id, p.amount, p.reference_note, p.payment_date FROM payments p
+    JOIN residents res ON res.id = p.resident_id
+    WHERE res.pg_id = ? AND p.status IN ${ACTIVE_STATUS_SQL} AND p.reference_note IS NOT NULL
+  `).bind(pgId).all();
   for (const p of flaggedPayments) {
     if (SUSPICIOUS_NOTE_PATTERN.test(p.reference_note)) {
-      exceptions.push({
+      add(p.resident_id, {
         type: 'flagged_note',
         label: 'Needs review',
         detail: `₹${p.amount.toLocaleString('en-IN')} on ${p.payment_date} was noted "${p.reference_note}" and never resolved.`,
@@ -229,30 +248,19 @@ export async function detectResidentExceptions(env, residentId, advanceState) {
     }
   }
 
-  const { results: recentDeletions } = await env.DB.prepare(`
-    SELECT id, amount, status, status_note, status_at FROM payments
-    WHERE resident_id = ? AND status IN ('deleted', 'voided') AND status_at >= datetime('now', '-14 days')
-  `).bind(residentId).all();
-  for (const p of recentDeletions) {
-    exceptions.push({
-      type: 'recent_adjustment',
-      label: p.status === 'deleted' ? 'Payment removed' : 'Payment voided',
-      detail: `₹${p.amount.toLocaleString('en-IN')} ${p.status} recently${p.status_note ? ` -- ${p.status_note}` : ''}.`,
-    });
-  }
-
   const { results: openFlags } = await env.DB.prepare(`
-    SELECT c.id, c.reason FROM corrections c
+    SELECT c.id, c.reason, p.resident_id FROM corrections c
     JOIN payments p ON p.id = c.record_id AND c.record_type = 'payment'
-    WHERE p.resident_id = ? AND c.status = 'open'
-  `).bind(residentId).all();
+    JOIN residents res ON res.id = p.resident_id
+    WHERE res.pg_id = ? AND c.status = 'open'
+  `).bind(pgId).all();
   for (const f of openFlags) {
-    exceptions.push({
+    add(f.resident_id, {
       type: 'open_correction',
       label: 'Correction pending review',
       detail: f.reason,
     });
   }
 
-  return exceptions;
+  return exceptionsByResident;
 }

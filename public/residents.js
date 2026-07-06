@@ -23,11 +23,18 @@ async function loadResidents() {
 function renderResidents() {
   const el = document.getElementById('screen-residents');
 
+  // Same chip visual language as the Rent tab's filters -- one product,
+  // not a patchwork of per-screen button styles.
+  const counts = {
+    active: state.residents.filter(r => r.status === 'active').length,
+    notice_given: state.residents.filter(r => r.status === 'notice_given').length,
+    vacated: state.residents.filter(r => r.status === 'vacated').length,
+  };
   const filterBar = `
-    <div class="row-3" style="margin-bottom:14px;">
-      <button class="btn ${residentFilter === 'active' ? 'btn-primary' : 'btn-outline'} btn-sm" style="width:100%;" onclick="setResidentFilter('active')">Active</button>
-      <button class="btn ${residentFilter === 'notice_given' ? 'btn-primary' : 'btn-outline'} btn-sm" style="width:100%;" onclick="setResidentFilter('notice_given')">Vacating</button>
-      <button class="btn ${residentFilter === 'vacated' ? 'btn-primary' : 'btn-outline'} btn-sm" style="width:100%;" onclick="setResidentFilter('vacated')">Vacated</button>
+    <div class="chip-row" style="margin-bottom:12px;">
+      <button class="chip ${residentFilter === 'active' ? 'active' : ''}" onclick="setResidentFilter('active')">Active<span class="chip-count">${counts.active}</span></button>
+      <button class="chip ${residentFilter === 'notice_given' ? 'active' : ''}" onclick="setResidentFilter('notice_given')">Vacating<span class="chip-count">${counts.notice_given}</span></button>
+      <button class="chip ${residentFilter === 'vacated' ? 'active' : ''}" onclick="setResidentFilter('vacated')">Vacated<span class="chip-count">${counts.vacated}</span></button>
     </div>
   `;
 
@@ -122,6 +129,14 @@ function renderResidentCard(r) {
         ? `<span class="badge badge-red">No check-in receipt</span>`
         : `<span class="badge badge-gray">Check-in pending</span>`;
 
+  // KYC badge — only shown when incomplete (mandatory Aadhaar + passport
+  // photo per house rules); complete KYC doesn't need to compete for space
+  // on an already busy card, and full document status is always visible in
+  // the detail modal.
+  const hasKyc = !!(r.aadhaar_photo_url && r.passport_photo_url);
+  const kycBadge = (r.status === 'active' && !isFutureBooking && !hasKyc)
+    ? `<span class="badge badge-red">KYC incomplete</span>` : '';
+
   const vacateBadge = r.status === 'notice_given'
     ? `<span class="badge badge-amber">Leaves ${fmtDate(r.planned_vacate_date)}</span>` : '';
   const vacatedBadge = r.status === 'vacated'
@@ -157,7 +172,7 @@ function renderResidentCard(r) {
         </div>
       </div>
       <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:7px;">
-        ${rentBadge}${advBadge}${checkinBadge}${vacateBadge}${vacatedBadge}
+        ${rentBadge}${advBadge}${checkinBadge}${kycBadge}${vacateBadge}${vacatedBadge}
       </div>
       ${progressBar}
     </div>`;
@@ -221,6 +236,7 @@ function showResidentDetailModal(r) {
     ${r.photo_url ? `<img src="${escapeHtml(r.photo_url)}" style="width:80px;height:80px;border-radius:12px;object-fit:cover;margin-bottom:12px;">` : ''}
 
     <div class="card" style="margin-bottom:12px;">
+      <div class="card-title">Contact &amp; Room</div>
       <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Phone</div></div><div>${escapeHtml(r.phone)}</div></div>
       ${r.alt_phone ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Alt Phone</div></div><div>${escapeHtml(r.alt_phone)}</div></div>` : ''}
       ${r.aadhaar_number ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Aadhaar</div></div><div>${escapeHtml(r.aadhaar_number)}</div></div>` : ''}
@@ -237,7 +253,7 @@ function showResidentDetailModal(r) {
 
     ${(r.aadhaar_photo_url || r.pan_photo_url || r.pan_number || r.aadhaar_back_photo_url || r.passport_photo_url) ? `
       <div class="card" style="margin-bottom:12px;">
-        <div class="card-title">Identity Documents</div>
+        <div class="card-title">KYC / ID Documents</div>
         ${r.aadhaar_photo_url ? `<p style="font-size:12px;color:var(--ink-soft);margin-bottom:4px;">Aadhaar — Front</p><img src="${r.aadhaar_photo_url}" class="doc-preview" style="max-height:200px;">` : ''}
         ${r.aadhaar_back_photo_url ? `<p style="font-size:12px;color:var(--ink-soft);margin:8px 0 4px;">Aadhaar — Back</p><img src="${r.aadhaar_back_photo_url}" class="doc-preview" style="max-height:200px;">` : ''}
         ${r.pan_number ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">PAN</div></div><div>${escapeHtml(r.pan_number)}</div></div>` : ''}
@@ -251,12 +267,6 @@ function showResidentDetailModal(r) {
       </div>
     `}
 
-    <button class="btn btn-outline" style="margin-bottom:10px;width:100%;" onclick="openEditResidentModal(${r.id})">Edit resident details</button>
-    <button class="btn btn-outline" style="margin-bottom:10px;" onclick="openCheckinReceiptArea(${r.id})">Check-in Receipt</button>
-
-    ${r.status === 'active' ? `
-      <button class="btn btn-outline" style="margin-bottom:10px;" onclick="openVacateNoticeForm(${r.id})">Record Vacate Notice</button>
-    ` : ''}
     ${r.status === 'notice_given' ? `
       <div class="card" style="margin-bottom:12px; background:var(--amber-bg); border-color:var(--amber);">
         <div class="card-title" style="color:var(--amber);">Vacate Notice</div>
@@ -267,7 +277,16 @@ function showResidentDetailModal(r) {
           <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Refund Eligibility</div></div><div><span class="badge ${r.refund_eligibility.eligible ? 'badge-green' : 'badge-red'}">${r.refund_eligibility.eligible ? 'Eligible' : 'Not eligible'}</span></div></div>
         ` : ''}
       </div>
-      <button class="btn btn-danger" style="margin-bottom:10px;" onclick="confirmMarkVacated(${r.id})">Mark as Vacated &amp; Free Bed</button>
+    ` : ''}
+
+    <div class="card-title" style="margin-top:4px;">Actions</div>
+    <button class="btn btn-outline" style="margin-bottom:10px;width:100%;" onclick="openEditResidentModal(${r.id})">Edit resident details</button>
+    <button class="btn btn-outline" style="margin-bottom:10px;width:100%;" onclick="openCheckinReceiptArea(${r.id})">Check-in Receipt</button>
+    ${r.status === 'active' ? `
+      <button class="btn btn-outline" style="margin-bottom:10px;width:100%;" onclick="openVacateNoticeForm(${r.id})">Record Vacate Notice</button>
+    ` : ''}
+    ${r.status === 'notice_given' ? `
+      <button class="btn btn-danger" style="margin-bottom:10px;width:100%;" onclick="confirmMarkVacated(${r.id})">Mark as Vacated &amp; Free Bed</button>
     ` : ''}
 
     <div class="card-title" style="margin-top:8px;">Payment History</div>

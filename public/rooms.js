@@ -107,6 +107,12 @@ async function openRoomDetail(roomId) {
             ? `<span class="badge ${bed.resident.status === 'notice_given' ? 'badge-amber' : 'badge-green'}">${bed.resident.status === 'notice_given' ? 'Notice given' : 'Occupied'}</span>`
             : `<button class="btn btn-gold btn-sm" onclick="closeModal(); openAddResidentModal(${bed.id})">Assign</button>`}
         </div>
+        ${bed.occupied ? `
+          <div style="display:flex;gap:6px;margin-top:8px;">
+            <button class="btn btn-outline btn-sm" style="flex:1;" onclick="closeModal(); openResidentDetail(${bed.resident.id})">View resident</button>
+            <button class="btn btn-sm" style="flex:1;" onclick="closeModal(); switchTab('rent')">Collect rent</button>
+          </div>
+        ` : ''}
       </div>
     `).join('')}
 

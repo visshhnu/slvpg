@@ -152,13 +152,11 @@ function renderDashboard(d, enquiries = []) {
 
     <div class="card">
       <div class="card-title">Money — choose a period</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
+      <div class="chip-row" style="padding-bottom:2px;">
         ${DASHBOARD_RANGES.map(r => `
-          <button class="btn btn-sm ${dashboardRange.key === r.key ? 'btn-primary' : 'btn-outline'}"
-            style="font-size:11.5px;padding:6px 10px;" onclick="setDashboardRange('${r.key}')">${r.label}</button>
+          <button class="chip ${dashboardRange.key === r.key ? 'active' : ''}" onclick="setDashboardRange('${r.key}')">${r.label}</button>
         `).join('')}
-        <button class="btn btn-sm ${dashboardRange.key === 'this_month' ? 'btn-primary' : 'btn-outline'}"
-          style="font-size:11.5px;padding:6px 10px;" onclick="setDashboardRange('this_month')">This Month</button>
+        <button class="chip ${dashboardRange.key === 'this_month' ? 'active' : ''}" onclick="setDashboardRange('this_month')">This Month</button>
       </div>
       ${dashboardRange.key === 'custom' ? `
         <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">

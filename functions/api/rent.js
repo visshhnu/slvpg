@@ -1,6 +1,6 @@
 // functions/api/rent.js
 import { requireAuth, jsonResponse, unauthorized, resolvePgId } from '../_auth.js';
-import { ensureLedgerRows, deriveRentStatus, deriveAdvanceState, detectResidentExceptions } from '../_ledger.js';
+import { ensureLedgerRows, deriveRentStatus, deriveAdvanceState, detectExceptionsForPg } from '../_ledger.js';
 
 export async function onRequestGet({ request, env }) {
   const session = await requireAuth(request, env);
@@ -62,9 +62,16 @@ export async function onRequestGet({ request, env }) {
       : { results: [] };
 
     const advance = deriveAdvanceState(row.advance_deposit, row.advance_paid);
-    const exceptions = await detectResidentExceptions(env, row.resident_id, advance);
 
-    enriched.push({ ...row, status, payments, advance, exceptions });
+    enriched.push({ ...row, status, payments, advance });
+  }
+
+  // One batched pass for the whole PG (2 queries total) instead of per
+  // resident -- see functions/_ledger.js for why that mattered.
+  const advanceStateByResident = new Map(enriched.map(r => [r.resident_id, r.advance]));
+  const exceptionsByResident = await detectExceptionsForPg(env, pgId, advanceStateByResident);
+  for (const row of enriched) {
+    row.exceptions = exceptionsByResident.get(row.resident_id) || [];
   }
 
   // Sort: overdue first, then partial, then pending, then not_due, then paid
