@@ -294,6 +294,34 @@ async function openEditResidentModal(residentId) {
   let r;
   try { r = await api(`/residents/${residentId}`); } catch(e) { showToast('Could not load resident.', 'error'); return; }
 
+  // Always fetch fresh room/bed occupancy for this -- moving someone into a
+  // bed that's actually occupied needs current data, not whatever was
+  // cached the last time some other screen loaded /rooms.
+  let rooms = [];
+  try { rooms = await api('/rooms'); } catch { rooms = state.rooms || []; }
+  state.rooms = rooms;
+
+  // Only offer bed reassignment for residents who currently have a bed
+  // (i.e. not a vacated resident, whose bed_id is null) -- there's no safe
+  // "leave unchanged" state to fall back to in a plain <select>, so a
+  // vacated resident's edit form skips this field entirely rather than
+  // risk accidentally assigning them a bed on save.
+  const bedOptions = [];
+  if (r.bed_id) {
+    rooms.forEach(room => {
+      room.beds.forEach(bed => {
+        const isCurrent = bed.id === r.bed_id;
+        if (isCurrent || (!bed.occupied && !bed.reserved)) {
+          bedOptions.push({
+            id: bed.id,
+            label: `${room.floor} ${room.room_number}-${bed.label} (${fmtMoney(room.monthly_rent)}/mo)${isCurrent ? ' — current' : ''}`,
+            current: isCurrent,
+          });
+        }
+      });
+    });
+  }
+
   openModal(`
     <div class="modal-header">
       <div class="modal-title">Edit — ${escapeHtml(r.name)}</div>
@@ -313,6 +341,13 @@ async function openEditResidentModal(residentId) {
 
     <label>Join / move-in date <span style="font-weight:400;color:var(--ink-soft);">(controls when they're billed and when the bed shows as occupied)</span></label>
     <input id="er-join-date" type="date" value="${r.join_date || ''}">
+
+    ${bedOptions.length > 0 ? `
+      <label>Room / Bed <span style="font-weight:400;color:var(--ink-soft);">(any floor, any vacant bed)</span></label>
+      <select id="er-bed">
+        ${bedOptions.map(b => `<option value="${b.id}" ${b.current ? 'selected' : ''}>${escapeHtml(b.label)}</option>`).join('')}
+      </select>
+    ` : ''}
 
     <label>Aadhaar number</label>
     <input id="er-aadhaar" value="${escapeHtml(r.aadhaar_number || '')}">
@@ -388,6 +423,7 @@ async function submitEditResident(residentId) {
     phone: document.getElementById('er-phone').value.trim(),
     alt_phone: document.getElementById('er-altphone').value.trim() || null,
     join_date: document.getElementById('er-join-date').value || null,
+    ...(document.getElementById('er-bed') ? { bed_id: parseInt(document.getElementById('er-bed').value, 10) } : {}),
     aadhaar_number: document.getElementById('er-aadhaar').value.trim() || null,
     pan_number: document.getElementById('er-pan').value.trim() || null,
     occupation: document.getElementById('er-occ').value.trim() || null,
@@ -412,6 +448,7 @@ async function submitEditResident(residentId) {
     });
     closeModal();
     showToast('Resident details updated.', 'success');
+    state.rooms = await api('/rooms'); // refresh occupancy cache -- bed_id may have just changed
     loadResidents();
   } catch(e) {
     showToast(e.message, 'error');

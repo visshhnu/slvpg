@@ -45,13 +45,19 @@ function filterRentRows(rows) {
 
 function renderExceptionsCard(exceptions) {
   if (!exceptions || exceptions.length === 0) return '';
+  // Every exception links straight to the resident's Payment History (where
+  // Edit/Delete already exist) so a flagged item can actually be acted on
+  // from here, not just read -- previously this card was informational only.
   return `
     <div class="exceptions-card">
       <div class="card-title">⚠ Needs attention (${exceptions.length})</div>
       ${exceptions.map(e => e.items.map(item => `
-        <div class="exception-row">
-          <div class="exc-label">${escapeHtml(e.resident_name)} — ${escapeHtml(item.label)}</div>
-          <div class="exc-detail">${escapeHtml(item.detail)}</div>
+        <div class="exception-row" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <div style="min-width:0;">
+            <div class="exc-label">${escapeHtml(e.resident_name)} — ${escapeHtml(item.label)}</div>
+            <div class="exc-detail">${escapeHtml(item.detail)}</div>
+          </div>
+          <button class="btn btn-sm btn-outline" style="flex-shrink:0;" onclick="openResidentDetail(${e.resident_id})">Review</button>
         </div>
       `).join('')).join('')}
     </div>`;

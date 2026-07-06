@@ -1,5 +1,6 @@
 // functions/api/rooms/[id].js
 import { requireAuth, jsonResponse, unauthorized } from '../../_auth.js';
+import { syncCurrentMonthRent } from '../../_ledger.js';
 
 export async function onRequestGet({ request, env, params }) {
   const session = await requireAuth(request, env);
@@ -87,5 +88,21 @@ export async function onRequestPatch({ request, env, params }) {
 
   binds.push(params.id);
   await env.DB.prepare(`UPDATE rooms SET ${updates.join(', ')} WHERE id = ?`).bind(...binds).run();
+
+  // If the rent just changed, every resident currently in this room (who
+  // doesn't have their own custom_rent override) has a stale current-month
+  // rent_ledger row -- self-heal all of them right now rather than waiting
+  // for the next unrelated page load to trigger ensureLedgerRows.
+  if ('monthly_rent' in body) {
+    const { results: occupants } = await env.DB.prepare(`
+      SELECT res.id FROM residents res
+      JOIN beds b ON b.id = res.bed_id
+      WHERE b.room_id = ? AND res.status IN ('active', 'notice_given')
+    `).bind(params.id).all();
+    for (const occ of occupants) {
+      await syncCurrentMonthRent(env, occ.id);
+    }
+  }
+
   return jsonResponse({ success: true });
 }

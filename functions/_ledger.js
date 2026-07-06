@@ -77,6 +77,36 @@ export async function ensureLedgerRows(env, pgId, month) {
   }
 }
 
+// Immediately re-syncs one resident's CURRENT-month rent_ledger row against
+// their live expected rent (custom_rent override, else the room's
+// monthly_rent). ensureLedgerRows already does this self-heal, but only the
+// next time someone happens to load Rent/Residents/Dashboard for the
+// current month -- call this right after a resident's custom_rent or their
+// room's monthly_rent is edited, so "I just fixed the rent" is true
+// immediately instead of on the next unrelated page view.
+export async function syncCurrentMonthRent(env, residentId) {
+  const today = new Date().toISOString().slice(0, 10);
+  const month = today.slice(0, 7);
+
+  const res = await env.DB.prepare(`
+    SELECT res.custom_rent, r.monthly_rent
+    FROM residents res
+    JOIN beds b ON b.id = res.bed_id
+    JOIN rooms r ON r.id = b.room_id
+    WHERE res.id = ?
+  `).bind(residentId).first();
+  if (!res) return;
+
+  const expectedAmount = res.custom_rent != null ? res.custom_rent : res.monthly_rent;
+  const existing = await env.DB.prepare(
+    'SELECT id, amount_due FROM rent_ledger WHERE resident_id = ? AND month = ?'
+  ).bind(residentId, month).first();
+
+  if (existing && existing.amount_due !== expectedAmount) {
+    await recomputeRentLedgerRow(env, existing.id, expectedAmount);
+  }
+}
+
 // Re-derives one rent_ledger row's amount_paid/status against a given
 // amount_due (which may have just changed), off the payments actually
 // linked to it. Shared by ensureLedgerRows' self-heal and

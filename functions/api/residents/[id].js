@@ -1,6 +1,6 @@
 // functions/api/residents/[id].js
 import { requireAuth, jsonResponse, unauthorized } from '../../_auth.js';
-import { deriveRentStatus, deriveAdvanceState } from '../../_ledger.js';
+import { deriveRentStatus, deriveAdvanceState, syncCurrentMonthRent } from '../../_ledger.js';
 
 function daysBetween(a, b) {
   return Math.round((new Date(b) - new Date(a)) / (1000 * 60 * 60 * 24));
@@ -105,6 +105,26 @@ export async function onRequestPatch({ request, env, params }) {
       return jsonResponse({ error: 'No valid fields to update' }, 400);
     }
 
+    // Moving a resident to a different bed (from Edit Resident) needs the
+    // same guard the Add Resident flow already has -- otherwise two active
+    // residents could end up pointing at the same bed_id. residents.js's
+    // POST checks this for a brand-new resident; nothing checked it for an
+    // existing one being moved, since bed_id was never editable here before.
+    if ('bed_id' in body && body.bed_id !== existing.bed_id) {
+      const bed = await env.DB.prepare(
+        `SELECT b.id, r.pg_id FROM beds b JOIN rooms r ON r.id = b.room_id WHERE b.id = ?`
+      ).bind(body.bed_id).first();
+      if (!bed || bed.pg_id !== existing.pg_id) {
+        return jsonResponse({ error: 'That bed does not belong to this PG' }, 400);
+      }
+      const occupied = await env.DB.prepare(
+        `SELECT id FROM residents WHERE bed_id = ? AND status != 'vacated' AND id != ?`
+      ).bind(body.bed_id, params.id).first();
+      if (occupied) {
+        return jsonResponse({ error: 'That bed is already occupied' }, 409);
+      }
+    }
+
     if (body.status === 'vacated') {
       if (existing.bed_id) {
         updates.push('bed_id = ?');
@@ -129,6 +149,17 @@ export async function onRequestPatch({ request, env, params }) {
         }, 500);
       }
       return jsonResponse({ error: 'Could not save changes: ' + msg }, 500);
+    }
+
+    // If custom_rent changed, OR the resident was moved to a different bed
+    // (a different room can mean a different monthly_rent), the current
+    // month's rent_ledger row was a snapshot taken before this edit --
+    // self-heal it right now instead of leaving it stale until the next
+    // unrelated page load happens to trigger ensureLedgerRows. This is
+    // exactly the "I corrected the rent/room but it still shows the old
+    // due/overpaid figures" gap.
+    if ('custom_rent' in body || 'bed_id' in body) {
+      await syncCurrentMonthRent(env, params.id);
     }
 
     // Same fix as resident creation: if advance_paid was increased directly

@@ -5,13 +5,40 @@ async function loadSettings() {
   el.innerHTML = `<div class="card"><div class="empty-state">Loading…</div></div>`;
 
   if (state.staff.role !== 'admin') {
+    // pg_manager can resolve flagged corrections (the backend has always
+    // allowed this -- functions/api/corrections/[id].js checks for
+    // 'admin' OR 'pg_manager') but this screen never fetched or rendered
+    // the corrections list for anyone except admin, so a pg_manager had a
+    // flag raised against them with literally no way to act on it in the
+    // app. Staff (not pg_manager) still can't resolve corrections, so they
+    // don't get this card.
     let fixedCharges = [];
+    let corrections = [];
     try { fixedCharges = await api('/fixed-charges'); } catch {}
+    if (state.staff.role === 'pg_manager') {
+      try { corrections = await api('/corrections?status=open'); } catch {}
+    }
     el.innerHTML = `
       <div class="card">
         <div class="card-title">Logged in as</div>
-        <div class="list-row"><div class="list-row-main"><div class="list-row-title">${escapeHtml(state.staff.name)}</div><div class="list-row-sub">Staff account</div></div></div>
+        <div class="list-row"><div class="list-row-main"><div class="list-row-title">${escapeHtml(state.staff.name)}</div><div class="list-row-sub">${state.staff.role === 'pg_manager' ? 'PG Manager' : 'Staff account'}</div></div></div>
       </div>
+
+      ${corrections.length > 0 ? `
+        <div class="card" style="border-color:var(--red);">
+          <div class="card-title" style="color:var(--red);">⚠ Flagged Corrections (${corrections.length})</div>
+          ${corrections.map(c => `
+            <div class="list-row">
+              <div class="list-row-main">
+                <div class="list-row-title" style="font-size:13.5px;">${c.record_type === 'payment' ? 'Payment' : 'Expense'}: ${c.record ? fmtMoney(c.record.amount) : '—'}${c.record && c.record.resident_name ? ' · ' + escapeHtml(c.record.resident_name) : ''}</div>
+                <div class="list-row-sub">"${escapeHtml(c.reason)}" — flagged by ${escapeHtml(c.raised_by)}</div>
+              </div>
+              <button class="btn btn-gold btn-sm" onclick="openResolveCorrectionModal(${c.id}, '${c.record_type}', ${c.record_id})">Review</button>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+
       <div class="card">
         <div class="card-title">Fixed Charges (reference only)</div>
         ${fixedCharges.length === 0 ? `<div class="empty-state" style="padding:18px;">Nothing set yet.</div>` :
