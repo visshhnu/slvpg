@@ -214,12 +214,18 @@ function renderRent() {
       </div>
       <div class="card" style="margin-bottom:8px;">
         <div class="stat-grid">
-          <div class="stat-box"><div class="stat-num green">${fmtMoney(summary.total_paid)}</div><div class="stat-label">Rent collected</div></div>
-          <div class="stat-box"><div class="stat-num red">${fmtMoney(summary.total_pending)}</div><div class="stat-label">Rent pending</div></div>
-          <div class="stat-box"><div class="stat-num green">${fmtMoney(summary.advance_total_paid)}</div><div class="stat-label">Advance collected</div></div>
-          <div class="stat-box"><div class="stat-num red">${fmtMoney(summary.advance_total_expected - summary.advance_total_paid)}</div><div class="stat-label">Advance pending</div></div>
+          <div class="stat-box"><div class="stat-num green">${fmtMoney(summary.total_paid)}</div><div class="stat-label">${monthLabel(summary.month)} rent collected</div></div>
+          <div class="stat-box"><div class="stat-num red">${fmtMoney(summary.total_pending)}</div><div class="stat-label">${monthLabel(summary.month)} rent pending</div></div>
+          <div class="stat-box"><div class="stat-num green">${fmtMoney(summary.advance_total_paid)}</div><div class="stat-label">Advance collected (current, all residents)</div></div>
+          <div class="stat-box"><div class="stat-num red">${fmtMoney(summary.advance_total_expected - summary.advance_total_paid)}</div><div class="stat-label">Advance pending (current, all residents)</div></div>
         </div>
       </div>
+      <!-- The two rows above are NOT the same kind of number: rent
+           collected/pending change when you page the month above; advance
+           collected/pending are a running snapshot across every resident
+           right now and stay the same no matter which month you're
+           viewing -- the labels say so explicitly instead of leaving it
+           to look like a 4-way breakdown of one month. -->
       <div class="segmented">
         <button class="${rentView === 'room' ? 'active' : ''}" onclick="setRentView('room')">Room view</button>
         <button class="${rentView === 'resident' ? 'active' : ''}" onclick="setRentView('resident')">Resident view</button>

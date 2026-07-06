@@ -130,6 +130,16 @@ function updateCustomDate(which, value) {
 // ─────────────────────────────────────────
 // Resolve period → date range
 // ─────────────────────────────────────────
+// Exact rule for each preset (this is the single source of truth -- the
+// labels below must never claim anything this function doesn't actually do):
+//   Today       -- single day, today.
+//   Yesterday   -- single day, the day before today.
+//   7 Days      -- rolling window: today minus 6 days, through today (7 days inclusive).
+//   This Month  -- calendar period: the 1st of the current calendar month, through today.
+//   3 Months    -- rolling window: today minus 3 calendar months (via JS setMonth),
+//                  through today. This is NOT "previous 3 full calendar months" --
+//                  e.g. from 6 Jul it's 6 Apr to 6 Jul, not Apr 1 - Jun 30.
+//   Custom      -- exactly the two dates picked, inclusive.
 function resolvePeriodDates() {
   const today = new Date().toISOString().slice(0, 10);
   const key = reportPeriod.key;
@@ -152,10 +162,15 @@ function resolvePeriodDates() {
   return { from: today.slice(0, 7) + '-01', to: today };
 }
 
+// Every report's card-title and empty-state routes through this, so the
+// exact resolved date range is always visible next to whatever number is
+// shown -- never just a preset name on its own with the actual dates left
+// implicit.
 function periodLabel() {
   const p = REPORT_PERIODS.find(p => p.key === reportPeriod.key);
-  if (reportPeriod.key === 'custom') return `${reportPeriod.from} to ${reportPeriod.to}`;
-  return p?.label || 'This Month';
+  const { from, to } = resolvePeriodDates();
+  const name = reportPeriod.key === 'custom' ? 'Custom' : (p?.label || 'This Month');
+  return from === to ? `${name} (${fmtDate(from)})` : `${name} (${fmtDate(from)} – ${fmtDate(to)})`;
 }
 
 // ─────────────────────────────────────────
@@ -327,7 +342,7 @@ async function renderPaymentsReport(el, from, to) {
     </div>
 
     ${payments.length === 0
-      ? `<div class="card"><div class="empty-state">No payments recorded in this period.</div></div>`
+      ? `<div class="card"><div class="empty-state">No payments recorded between ${fmtDate(from)} and ${fmtDate(to)}.</div></div>`
       : payments.map(p => `
         <div class="list-row" style="background:var(--card);border-radius:8px;padding:10px 12px;margin-bottom:6px;border:1px solid var(--border);">
           <div class="list-row-main">
@@ -380,7 +395,7 @@ async function renderExpensesReport(el, month, from, to) {
     ` : ''}
 
     ${rows.length === 0
-      ? `<div class="card"><div class="empty-state">No expenses in this period.</div></div>`
+      ? `<div class="card"><div class="empty-state">No expenses recorded between ${fmtDate(from)} and ${fmtDate(to)}.</div></div>`
       : rows.map(e => `
         <div class="list-row" style="background:var(--card);border-radius:8px;padding:10px 12px;margin-bottom:6px;border:1px solid var(--border);">
           <div class="list-row-main">

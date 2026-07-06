@@ -58,7 +58,7 @@ function renderExpenses() {
     <div class="card">
       <div class="stat-box" style="width:100%;">
         <div class="stat-num">${fmtMoney(total)}</div>
-        <div class="stat-label">Total expenses this month</div>
+        <div class="stat-label">${monthLabel(expenseMonthFilter)} total expenses</div>
       </div>
     </div>
 
@@ -78,7 +78,7 @@ function renderExpenses() {
       <div class="card-title">All Entries</div>
       ${rows.length === 0 ? `
         <div class="empty-state">
-          <div class="empty-state-title">No expenses logged this month</div>
+          <div class="empty-state-title">No expenses logged in ${monthLabel(expenseMonthFilter)}</div>
           <div>Tap + to record groceries, milk, electricity, landlord rent, etc.</div>
         </div>
       ` : rows.map(e => `

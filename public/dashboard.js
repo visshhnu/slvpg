@@ -11,6 +11,18 @@ const DASHBOARD_RANGES = [
 
 let dashboardRange = { key: 'this_month', from: null, to: null };
 
+// The backend's period.label (e.g. "Last 3 months") never showed the
+// actual resolved dates, so two people could disagree about what "3
+// Months" meant without either being provably wrong. This appends the
+// real from/to the backend already computed, so the range is always
+// stated, not just implied by the preset name.
+function periodRangeText(period) {
+  if (!period) return '';
+  return period.from === period.to
+    ? `${period.label} (${fmtDate(period.from)})`
+    : `${period.label} (${fmtDate(period.from)} – ${fmtDate(period.to)})`;
+}
+
 async function loadDashboard() {
   const el = document.getElementById('screen-dashboard');
   el.innerHTML = `<div class="card"><div class="empty-state">Loading…</div></div>`;
@@ -130,7 +142,7 @@ function renderDashboard(d, enquiries = []) {
     </div>
 
     <div class="card">
-      <div class="card-title">Bookings — ${d.period ? d.period.label : 'This month'} <span style="font-weight:400;color:var(--ink-soft);font-size:11px;">(by join date)</span></div>
+      <div class="card-title">Bookings — ${d.period ? periodRangeText(d.period) : 'This month'} <span style="font-weight:400;color:var(--ink-soft);font-size:11px;">(by join date)</span></div>
       ${(!d.bookings_in_period || d.bookings_in_period.length === 0) ? `
         <div class="empty-state">
           <div class="empty-state-title">No joins in this period</div>
@@ -168,7 +180,7 @@ function renderDashboard(d, enquiries = []) {
     </div>
 
     <div class="card">
-      <div class="card-title">${d.period ? d.period.label : monthLabel(d.this_month)} Money</div>
+      <div class="card-title">${d.period ? periodRangeText(d.period) : monthLabel(d.this_month)} Money</div>
       <div class="stat-grid">
         <div class="stat-box">
           <div class="stat-num green">${fmtMoney(d.rent_collected)}</div>
@@ -180,7 +192,7 @@ function renderDashboard(d, enquiries = []) {
         </div>
         <div class="stat-box">
           <div class="stat-num">${fmtMoney(d.expenses_this_month)}</div>
-          <div class="stat-label">Total expenses</div>
+          <div class="stat-label">Total expenses (period)</div>
         </div>
         <div class="stat-box">
           <div class="stat-num ${d.net_this_month >= 0 ? 'green' : 'red'}">${fmtMoney(d.net_this_month)}</div>

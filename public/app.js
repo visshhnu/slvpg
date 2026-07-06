@@ -152,6 +152,18 @@ async function doLogout() {
   document.getElementById('app-shell').classList.add('hidden');
   document.getElementById('auth-screen').classList.remove('hidden');
   document.getElementById('login-password').value = '';
+  // If we just logged out, setup was already complete -- always show the
+  // login form here, never "Create Admin Account". Without this, anyone
+  // whose session was still valid on page load (the normal case) never had
+  // checkSetup() run for them at all -- that only runs from init()'s catch
+  // branch, when there's NO valid session yet -- so setup-form/login-form
+  // were sitting at their raw HTML defaults (setup visible, login hidden)
+  // the entire time, invisibly, while auth-screen itself was hidden. The
+  // moment logout reveals auth-screen again, that leftover default is what
+  // showed: the setup screen, not the login screen. This is exactly the
+  // "logs out and lands on Create Admin Account" bug.
+  document.getElementById('setup-form').classList.add('hidden');
+  document.getElementById('login-form').classList.remove('hidden');
 }
 
 async function enterApp() {
@@ -194,13 +206,13 @@ const TAB_TITLES = {
 // here or in TAB_TITLES at all before, so opening it left the header
 // showing whatever the previous tab's title happened to be.
 const TAB_SUBTITLES = {
-  dashboard: "Today's activity & occupancy",
-  rooms: 'Floors, rooms & beds',
-  residents: 'Profiles, documents & status',
-  rent: 'Collect & track rent, floor by floor',
-  expenses: 'Outgoings & vendor payments',
+  dashboard: "Today's activity, occupancy, and key alerts",
+  rooms: 'Floor-wise room and bed occupancy',
+  residents: 'Resident records, status, and onboarding',
+  rent: 'Monthly rent, advances, dues, and exceptions',
+  expenses: 'Operational spending and monthly expense tracking',
   settings: 'Staff & PG configuration',
-  reports: 'Financial summaries & exports',
+  reports: 'Financial summaries, exports, and printable statements',
 };
 
 function switchTab(tab) {
