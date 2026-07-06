@@ -19,10 +19,17 @@ export async function onRequestGet({ request, env }) {
   if (!pgId) return jsonResponse({ error: 'pg_id is required' }, 400);
 
   const month = url.searchParams.get('month');
+  const from = url.searchParams.get('from');
+  const to = url.searchParams.get('to');
 
   let query = 'SELECT * FROM expenses WHERE pg_id = ?';
   const binds = [pgId];
-  if (month) {
+  if (from && to) {
+    // Date-range filter (used by Reports) -- `month` alone can't express a
+    // multi-month range like "3 Months" or an arbitrary custom range.
+    query += ' AND expense_date BETWEEN ? AND ?';
+    binds.push(from, to);
+  } else if (month) {
     query += ' AND expense_date LIKE ?';
     binds.push(`${month}%`);
   }

@@ -50,7 +50,12 @@ export async function onRequestGet({ request, env }) {
   if (!pgId) return jsonResponse({ error: 'pg_id is required' }, 400);
 
   const residentId = url.searchParams.get('resident_id');
-  const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 200);
+  const from = url.searchParams.get('from');
+  const to = url.searchParams.get('to');
+  // Only applied when both a resident filter and a date range are absent --
+  // Reports pulls the whole period's transactions via from/to and needs
+  // every matching row, not just the most recent 50.
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || (from && to ? '1000' : '50'), 10), 1000);
 
   let query = `
     SELECT p.*, res.name as resident_name, r.floor, r.room_number
@@ -66,8 +71,15 @@ export async function onRequestGet({ request, env }) {
     query += ' AND p.resident_id = ?';
     binds.push(residentId);
   }
+  // Date-range filter (used by Reports) -- previously accepted these params
+  // and silently ignored them, so a report claiming to cover "3 months"
+  // actually never filtered by date at all.
+  if (from && to) {
+    query += ' AND p.payment_date BETWEEN ? AND ?';
+    binds.push(from, to);
+  }
 
-  query += ' ORDER BY p.created_at DESC LIMIT ?';
+  query += ' ORDER BY p.payment_date DESC, p.created_at DESC LIMIT ?';
   binds.push(limit);
 
   const { results } = await env.DB.prepare(query).bind(...binds).all();

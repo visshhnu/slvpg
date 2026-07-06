@@ -67,10 +67,17 @@ function openReport(key) {
   renderReportScreen(key);
 }
 
+// These three are point-in-time snapshots (current advance balances, who's
+// active right now, current bed occupancy) -- there's no "period" for them
+// to be scoped to, so the period selector is hidden rather than shown next
+// to a report where clicking it visibly changes nothing.
+const PERIOD_AGNOSTIC_REPORTS = ['advance', 'residents', 'occupancy'];
+
 function renderReportScreen(key) {
   const type = REPORT_TYPES.find(r => r.key === key);
   const el = document.getElementById('screen-reports');
   const today = new Date().toISOString().slice(0, 10);
+  const isPeriodAgnostic = PERIOD_AGNOSTIC_REPORTS.includes(key);
 
   el.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
@@ -81,19 +88,24 @@ function renderReportScreen(key) {
       </div>
     </div>
 
-    <div class="card" style="margin-bottom:10px;">
-      <div style="display:flex;gap:6px;flex-wrap:wrap;">
-        ${REPORT_PERIODS.map(p => `
-          <button class="btn btn-sm ${reportPeriod.key === p.key ? 'btn-primary' : 'btn-outline'}"
-            style="font-size:11px;padding:5px 10px;" onclick="changeReportPeriod('${p.key}')">${p.label}</button>
-        `).join('')}
+    ${isPeriodAgnostic ? `
+      <div class="card" style="margin-bottom:10px;">
+        <span class="badge badge-gray">Current snapshot — not period-based</span>
       </div>
-      <div id="report-custom-dates" style="display:${reportPeriod.key === 'custom' ? 'flex' : 'none'};gap:8px;margin-top:8px;align-items:center;">
-        <input type="date" id="report-from" value="${today}" onchange="updateCustomDate('from',this.value)" style="flex:1;">
-        <span style="color:var(--ink-soft);font-size:12px;">to</span>
-        <input type="date" id="report-to" value="${today}" onchange="updateCustomDate('to',this.value)" style="flex:1;">
+    ` : `
+      <div class="card" style="margin-bottom:10px;">
+        <div class="chip-row">
+          ${REPORT_PERIODS.map(p => `
+            <button class="chip ${reportPeriod.key === p.key ? 'active' : ''}" onclick="changeReportPeriod('${p.key}')">${p.label}</button>
+          `).join('')}
+        </div>
+        <div id="report-custom-dates" style="display:${reportPeriod.key === 'custom' ? 'flex' : 'none'};gap:8px;margin-top:8px;align-items:center;">
+          <input type="date" id="report-from" value="${today}" onchange="updateCustomDate('from',this.value)" style="flex:1;">
+          <span style="color:var(--ink-soft);font-size:12px;">to</span>
+          <input type="date" id="report-to" value="${today}" onchange="updateCustomDate('to',this.value)" style="flex:1;">
+        </div>
       </div>
-    </div>
+    `}
 
     <div id="report-content">
       <div class="card"><div class="empty-state">Loading…</div></div>
@@ -158,7 +170,7 @@ async function fetchReport(key) {
     const month = from.slice(0, 7); // dominant month in range
 
     switch (key) {
-      case 'rent':      await renderRentReport(el, month); break;
+      case 'rent':      await renderRentReport(el, month, from, to); break;
       case 'advance':   await renderAdvanceReport(el); break;
       case 'payments':  await renderPaymentsReport(el, from, to); break;
       case 'expenses':  await renderExpensesReport(el, month, from, to); break;
@@ -174,19 +186,38 @@ async function fetchReport(key) {
 // ─────────────────────────────────────────
 // 1. RENT COLLECTION
 // ─────────────────────────────────────────
-async function renderRentReport(el, month) {
+async function renderRentReport(el, month, from, to) {
   const data = await api(`/rent?month=${month}`);
   const rows = data.rows || [];
   const billed = rows.filter(r => r.id);
   const notDue = rows.filter(r => !r.id);
   const s = data.summary;
 
+  // "Collected" here used to just be the current calendar month's ledger
+  // total, completely ignoring whatever period was selected -- picking
+  // Today/7 Days/3 Months changed nothing. This figure is now genuinely
+  // scoped to the selected period, sourced from actual rent payments dated
+  // within it. The status list below stays a "right now" snapshot for
+  // this calendar month, since "who's currently overdue" isn't something
+  // a past date range can answer -- it's clearly labelled as such so the
+  // two don't get confused with each other.
+  const periodPayments = (await api(`/payments?from=${from}&to=${to}`)).filter(p => p.payment_type === 'rent');
+  const collectedInPeriod = periodPayments.reduce((s, p) => s + p.amount, 0);
+
   el.innerHTML = `
     <div class="card" style="margin-bottom:8px;">
-      <div class="card-title">Rent — ${monthLabel(month)}</div>
+      <div class="card-title">Rent collected — ${periodLabel()}</div>
       <div class="stat-grid">
-        <div class="stat-box"><div class="stat-num green">${fmtMoney(s.total_paid)}</div><div class="stat-label">Collected</div></div>
-        <div class="stat-box"><div class="stat-num red">${fmtMoney(s.total_pending)}</div><div class="stat-label">Pending</div></div>
+        <div class="stat-box"><div class="stat-num green">${fmtMoney(collectedInPeriod)}</div><div class="stat-label">Collected in period</div></div>
+        <div class="stat-box"><div class="stat-num">${periodPayments.length}</div><div class="stat-label">Rent transactions</div></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:8px;">
+      <div class="card-title" style="font-size:11px;text-transform:uppercase;color:var(--ink-soft);">Current status — ${monthLabel(month)}</div>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="stat-num green">${fmtMoney(s.total_paid)}</div><div class="stat-label">Paid this month</div></div>
+        <div class="stat-box"><div class="stat-num red">${fmtMoney(s.total_pending)}</div><div class="stat-label">Pending this month</div></div>
         <div class="stat-box"><div class="stat-num">${fmtMoney(s.total_due)}</div><div class="stat-label">Total billed</div></div>
         <div class="stat-box"><div class="stat-num red">${s.overdue_count}</div><div class="stat-label">Overdue</div></div>
       </div>
@@ -276,39 +307,32 @@ async function renderAdvanceReport(el) {
 // 3. PAYMENT HISTORY
 // ─────────────────────────────────────────
 async function renderPaymentsReport(el, from, to) {
-  const data = await api(`/payments?from=${from}&to=${to}`).catch(() => null);
-  // Payments API may not support date filter — use dashboard advance+rent
-  const dash = await api(`/dashboard?range=${reportPeriod.key}${reportPeriod.key==='custom'?`&from=${from}&to=${to}`:''}`);
-  // Fall back to per-resident data from rent tab
-  const currentMonth = from.slice(0, 7);
-  const rentData = await api(`/rent?month=${currentMonth}`);
-  const allPayments = [];
-  for (const row of rentData.rows || []) {
-    for (const p of row.payments || []) {
-      if (p.payment_date >= from && p.payment_date <= to) {
-        allPayments.push({ ...p, resident_name: row.resident_name, room: `${row.floor||''} ${row.room_number||''}${row.bed_label?'-'+row.bed_label:''}` });
-      }
-    }
-  }
-  allPayments.sort((a, b) => b.payment_date.localeCompare(a.payment_date));
-  const total = allPayments.reduce((s, p) => s + p.amount, 0);
+  // /payments now genuinely filters by date range server-side (it used to
+  // silently ignore from/to), and this returns every payment type --
+  // rent, advance, refund -- across the whole range regardless of how many
+  // calendar months it spans. The old version derived this list from a
+  // single month's rent_ledger rows, which meant "3 Months" or a custom
+  // range never actually saw more than one month, and advance payments
+  // (never tied to a rent_ledger row) were silently excluded entirely.
+  const payments = await api(`/payments?from=${from}&to=${to}`);
+  const total = payments.reduce((s, p) => s + p.amount, 0);
 
   el.innerHTML = `
     <div class="card" style="margin-bottom:8px;">
       <div class="card-title">Payments — ${periodLabel()}</div>
       <div class="stat-grid">
         <div class="stat-box"><div class="stat-num green">${fmtMoney(total)}</div><div class="stat-label">Total received</div></div>
-        <div class="stat-box"><div class="stat-num">${allPayments.length}</div><div class="stat-label">Transactions</div></div>
+        <div class="stat-box"><div class="stat-num">${payments.length}</div><div class="stat-label">Transactions</div></div>
       </div>
     </div>
 
-    ${allPayments.length === 0
+    ${payments.length === 0
       ? `<div class="card"><div class="empty-state">No payments recorded in this period.</div></div>`
-      : allPayments.map(p => `
+      : payments.map(p => `
         <div class="list-row" style="background:var(--card);border-radius:8px;padding:10px 12px;margin-bottom:6px;border:1px solid var(--border);">
           <div class="list-row-main">
             <div class="list-row-title">${escapeHtml(p.resident_name)}</div>
-            <div class="list-row-sub">${p.room} · ${fmtDate(p.payment_date)} · ${p.payment_mode || 'cash'} · by ${escapeHtml(p.collected_by || '—')}</div>
+            <div class="list-row-sub">${p.floor || ''} ${p.room_number || ''} · ${fmtDate(p.payment_date)} · ${p.payment_mode || 'cash'} · by ${escapeHtml(p.collected_by || '—')}</div>
             <span class="badge ${p.payment_type === 'rent' ? 'badge-green' : p.payment_type === 'advance' ? 'badge-amber' : 'badge-gray'}">${p.payment_type}</span>
           </div>
           <div style="font-weight:700;font-size:14px;color:var(--green);">+${fmtMoney(p.amount)}</div>
@@ -324,8 +348,12 @@ async function renderPaymentsReport(el, from, to) {
 // 4. EXPENSES
 // ─────────────────────────────────────────
 async function renderExpensesReport(el, month, from, to) {
-  const data = await api(`/expenses?month=${month}`);
-  const rows = (data.rows || []).filter(e => e.expense_date >= from && e.expense_date <= to);
+  // Date-range filter, not a single `month` -- a "3 Months" or custom range
+  // spanning multiple calendar months used to only ever fetch the FIRST
+  // month (month = from.slice(0,7)) and could never see the rest, no
+  // matter how the client-side filter below was written.
+  const data = await api(`/expenses?from=${from}&to=${to}`);
+  const rows = data.rows || [];
   const byCat = {};
   rows.forEach(e => { byCat[e.category] = (byCat[e.category] || 0) + e.amount; });
   const total = rows.reduce((s, e) => s + e.amount, 0);

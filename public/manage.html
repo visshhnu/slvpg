@@ -671,10 +671,17 @@ label {
 <script src="/settings.js"></script>
 <script src="/reports.js"></script>
 <script>
-  // Register service worker for PWA / offline support
+  // Register service worker for PWA / offline support.
+  // updateViaCache: 'none' -- without this, the BROWSER's own HTTP cache
+  // can serve a stale copy of sw.js itself when checking for updates,
+  // which would delay every future service-worker fix (like this one) by
+  // however long that HTTP cache entry lives. This forces every update
+  // check to actually hit the network for sw.js.
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').catch(err => {
+      navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then(reg => {
+        reg.update();
+      }).catch(err => {
         console.warn('SW registration failed:', err);
       });
     });
