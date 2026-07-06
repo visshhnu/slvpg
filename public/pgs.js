@@ -25,6 +25,16 @@ function openPgSwitcher() {
 
 async function selectPg(pgId) {
   state.currentPgId = pgId;
+  // Every per-PG cache must be dropped here, not just currentPgId -- without
+  // this, an admin switching properties would keep seeing the PREVIOUS PG's
+  // room layout (state.rooms), resident list or rent data until something
+  // else happened to refetch them. state.rooms in particular now backs the
+  // Rent tab's Room view, so a stale cache there would show the wrong
+  // property's floors/rooms/vacant beds after switching.
+  state.rooms = [];
+  state.residents = [];
+  state.rentData = null;
+  state.expensesData = null;
   updatePgLabel();
   closeModal();
   switchTab(state.currentTab); // reload current screen with new PG's data

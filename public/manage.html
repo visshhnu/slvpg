@@ -216,6 +216,91 @@ label {
 .badge-gold { background: #F7ECD3; color: var(--gold); }
 .badge-maint { background: var(--red-bg); color: var(--red); }
 
+/* ---- Rent page: filter chips, view toggle, sticky summary, exceptions ---- */
+.sticky-summary {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--cream);
+  padding-top: 2px;
+  margin: -2px -2px 12px;
+}
+.chip-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 2px 8px;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.chip-row::-webkit-scrollbar { display: none; }
+.chip {
+  flex-shrink: 0;
+  padding: 6px 13px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1.5px solid var(--border);
+  background: var(--card);
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chip.active { background: var(--navy); border-color: var(--navy); color: white; }
+.chip .chip-count { opacity: 0.75; margin-left: 3px; }
+
+.segmented {
+  display: flex;
+  background: var(--cream);
+  border: 1.5px solid var(--border);
+  border-radius: 11px;
+  padding: 3px;
+  gap: 3px;
+  margin-bottom: 12px;
+}
+.segmented button {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.segmented button.active { background: var(--navy); color: white; }
+
+.exceptions-card {
+  background: var(--red-bg);
+  border: 1.5px solid var(--red);
+  border-radius: var(--radius, 14px);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.exceptions-card .card-title { color: var(--red); }
+.exception-row { padding: 7px 0; border-top: 1px solid rgba(178,59,59,0.18); }
+.exception-row:first-of-type { border-top: none; }
+.exception-row .exc-label { font-size: 12.5px; font-weight: 700; color: var(--red); }
+.exception-row .exc-detail { font-size: 11.5px; color: var(--ink-soft); margin-top: 1px; }
+
+/* Compact room-first card used by Rent tab's Room view */
+.rent-room-card { margin-bottom: 8px; }
+.rent-room-card .rrc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.rent-room-card .rrc-room { font-size: 15px; font-weight: 800; color: var(--navy); }
+.rent-room-card .rrc-resident { font-size: 12px; color: var(--ink-soft); margin-top: 1px; }
+.rent-room-card.vacant { opacity: 0.6; }
+.rent-room-card .rrc-figures {
+  display: flex;
+  gap: 14px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+}
+.rent-room-card .rrc-figures .fig-label { color: var(--ink-soft); }
+.rent-room-card .rrc-figures .fig-val { font-weight: 700; }
+
 .room-card { position: relative; }
 .room-card .maint-dot {
   position: absolute;

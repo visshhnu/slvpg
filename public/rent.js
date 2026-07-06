@@ -1,4 +1,10 @@
 // ===== Rent screen =====
+// Rent is room-first & operationally driven: default view groups by floor
+// then room (including vacant beds, so a manager sees the whole floor at a
+// glance), with a Resident view toggle for a flat, filterable work queue.
+
+let rentView = 'room'; // 'room' | 'resident'
+let rentStatusFilter = 'all'; // filter chips only apply to Resident view
 
 async function loadRent() {
   const el = document.getElementById('screen-rent');
@@ -8,7 +14,11 @@ async function loadRent() {
     return;
   }
   try {
-    state.rentData = await api(`/rent?month=${state.rentMonth}`);
+    const [rentData] = await Promise.all([
+      api(`/rent?month=${state.rentMonth}`),
+      state.rooms.length === 0 ? api('/rooms').then(r => { state.rooms = r; }) : Promise.resolve(),
+    ]);
+    state.rentData = rentData;
     renderRent();
   } catch (e) {
     el.innerHTML = `<div class="card"><div class="empty-state-title">Couldn't load rent data</div><div>${e.message}</div></div>`;
@@ -20,6 +30,102 @@ function changeRentMonth(delta) {
   const d = new Date(y, m - 1 + delta, 1);
   state.rentMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   loadRent();
+}
+
+function setRentView(view) { rentView = view; renderRent(); }
+function setRentStatusFilter(f) { rentStatusFilter = f; renderRent(); }
+
+function filterRentRows(rows) {
+  if (rentStatusFilter === 'all') return rows;
+  if (rentStatusFilter === 'advance_pending') {
+    return rows.filter(r => r.advance && (r.advance.status === 'pending' || r.advance.status === 'partial'));
+  }
+  return rows.filter(r => r.status === rentStatusFilter);
+}
+
+function renderExceptionsCard(exceptions) {
+  if (!exceptions || exceptions.length === 0) return '';
+  return `
+    <div class="exceptions-card">
+      <div class="card-title">⚠ Needs attention (${exceptions.length})</div>
+      ${exceptions.map(e => e.items.map(item => `
+        <div class="exception-row">
+          <div class="exc-label">${escapeHtml(e.resident_name)} — ${escapeHtml(item.label)}</div>
+          <div class="exc-detail">${escapeHtml(item.detail)}</div>
+        </div>
+      `).join('')).join('')}
+    </div>`;
+}
+
+// Room view: every bed on every floor, occupied or not -- billing rows are
+// matched onto their bed by floor+room+bed label (same source columns as
+// /rooms, so this always lines up).
+function renderRoomView(rows) {
+  if (!state.rooms || state.rooms.length === 0) {
+    return `<div class="card"><div class="empty-state">Room layout not loaded — switch to Resident view, or open the Rooms tab once.</div></div>`;
+  }
+  const byBed = {};
+  rows.forEach(r => { byBed[`${r.floor}|${r.room_number}|${r.bed_label}`] = r; });
+
+  const floors = [...new Set(state.rooms.map(rm => rm.floor))];
+  return floors.map(floor => {
+    const cardsHtml = state.rooms.filter(rm => rm.floor === floor).map(room =>
+      room.beds.map(bed => {
+        const row = byBed[`${floor}|${room.room_number}|${bed.label}`];
+        return row ? renderRoomRentCard(row, room) : renderVacantBedCard(room, bed);
+      }).join('')
+    ).join('');
+    return `<div class="floor-group"><div class="floor-label">${escapeHtml(floor)} Floor</div>${cardsHtml}</div>`;
+  }).join('');
+}
+
+function renderVacantBedCard(room, bed) {
+  const isReserved = bed.reserved && bed.resident;
+  return `
+    <div class="card rent-room-card vacant">
+      <div class="rrc-head">
+        <div>
+          <div class="rrc-room">${escapeHtml(room.room_number)}-${escapeHtml(bed.label)}</div>
+          <div class="rrc-resident">${isReserved ? `Reserved for ${escapeHtml(bed.resident.name)} · moves in ${fmtDate(bed.resident.join_date)}` : 'No resident assigned'}</div>
+        </div>
+        <span class="badge ${isReserved ? 'badge-gold' : 'badge-gray'}">${isReserved ? 'Move-in scheduled' : 'Vacant'}</span>
+      </div>
+    </div>`;
+}
+
+// Compact room-first card for Room view: room/bed is the primary heading,
+// resident name is secondary -- the inverse emphasis of Resident view's
+// renderRentCard, which is person-first. Same underlying figures and the
+// same Collect/Part-payment/Advance actions either way.
+function renderRoomRentCard(row, room) {
+  const notDue = row.status === 'not_due';
+  const balance = notDue ? 0 : row.amount_due - row.amount_paid;
+  const adv = row.advance;
+  const hasExceptions = row.exceptions && row.exceptions.length > 0;
+
+  return `
+    <div class="card rent-room-card">
+      <div class="rrc-head">
+        <div style="min-width:0;">
+          <div class="rrc-room">${escapeHtml(room.room_number)}-${escapeHtml(row.bed_label || '')}</div>
+          <div class="rrc-resident">${escapeHtml(row.resident_name)}${hasExceptions ? ' <span style="color:var(--red);">⚠</span>' : ''}</div>
+        </div>
+        <span class="badge ${rentStatusBadgeClass(row.status)}">${rentStatusLabel(row.status)}</span>
+      </div>
+      <div class="rrc-figures">
+        <div><div class="fig-label">Rent</div><div class="fig-val">${notDue ? '—' : `${fmtMoney(row.amount_paid)} / ${fmtMoney(row.amount_due)}`}</div></div>
+        ${!notDue ? `<div><div class="fig-label">Due ${fmtDate(row.due_date)}</div><div class="fig-val" style="${balance > 0 ? 'color:var(--red);' : ''}">${fmtMoney(Math.max(0, balance))}</div></div>` : ''}
+        ${adv && adv.expected > 0 ? `<div><div class="fig-label">Advance</div><div class="fig-val" style="${adv.balance > 0 ? 'color:var(--amber);' : ''}">${fmtMoney(adv.paid)} / ${fmtMoney(adv.expected)}</div></div>` : ''}
+      </div>
+      ${row.payments && row.payments.length > 0 ? `<div style="font-size:11px;color:var(--ink-soft);margin-top:6px;">Last: ${fmtMoney(row.payments[row.payments.length - 1].amount)} on ${fmtDate(row.payments[row.payments.length - 1].payment_date)}</div>` : ''}
+      ${!notDue && row.status !== 'paid' ? `
+        <div style="display:flex;gap:6px;margin-top:8px;">
+          <button class="btn btn-primary btn-sm" style="flex:1;" onclick="openCollectModal(${row.id}, ${row.resident_id}, '${escapeHtml(row.resident_name)}', ${balance}, ${row.amount_due})">Collect ${fmtMoney(balance)}</button>
+          <button class="btn btn-sm" onclick="openPartPaymentModal(${row.id}, ${row.resident_id}, '${escapeHtml(row.resident_name)}', ${balance}, ${row.amount_due})">Part payment</button>
+        </div>` : ''}
+      ${adv && adv.balance > 0 ? `
+        <button class="btn btn-sm btn-outline" style="margin-top:6px;" onclick="openAdvanceModal(${row.resident_id}, '${escapeHtml(row.resident_name)}', ${adv.balance})">+ Collect advance ${fmtMoney(adv.balance)}</button>` : ''}
+    </div>`;
 }
 
 // rentStatusBadgeClass/rentStatusLabel now live in app.js (shared with
@@ -81,38 +187,50 @@ function renderAdvanceRow(row) {
 
 function renderRent() {
   const el = document.getElementById('screen-rent');
-  const { summary, rows } = state.rentData;
+  const { summary, rows, exceptions } = state.rentData;
+  const filteredRows = rentView === 'resident' ? filterRentRows(rows) : rows;
+
+  const chipDef = [
+    { key: 'all', label: 'All', count: rows.length },
+    { key: 'overdue', label: 'Overdue', count: rows.filter(r => r.status === 'overdue').length },
+    { key: 'partial', label: 'Partial', count: rows.filter(r => r.status === 'partial').length },
+    { key: 'pending', label: 'Due', count: rows.filter(r => r.status === 'pending').length },
+    { key: 'paid', label: 'Paid', count: rows.filter(r => r.status === 'paid').length },
+    { key: 'advance_pending', label: 'Advance pending', count: rows.filter(r => r.advance && (r.advance.status === 'pending' || r.advance.status === 'partial')).length },
+  ];
 
   el.innerHTML = `
-    <div class="month-nav">
-      <button onclick="changeRentMonth(-1)">‹</button>
-      <div class="month-nav-label">${monthLabel(summary.month)}</div>
-      <button onclick="changeRentMonth(1)">›</button>
-    </div>
-
-    <div class="card">
-      <div class="card-title" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft);">Rent — ${monthLabel(summary.month)}</div>
-      <div class="stat-grid">
-        <div class="stat-box"><div class="stat-num green">${fmtMoney(summary.total_paid)}</div><div class="stat-label">Rent collected</div></div>
-        <div class="stat-box"><div class="stat-num red">${fmtMoney(summary.total_pending)}</div><div class="stat-label">Rent pending</div></div>
+    <div class="sticky-summary">
+      <div class="month-nav">
+        <button onclick="changeRentMonth(-1)">‹</button>
+        <div class="month-nav-label">${monthLabel(summary.month)}</div>
+        <button onclick="changeRentMonth(1)">›</button>
       </div>
-      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
-        <div class="card-title" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft);margin-bottom:6px;">Advance Deposits (all residents)</div>
+      <div class="card" style="margin-bottom:8px;">
         <div class="stat-grid">
+          <div class="stat-box"><div class="stat-num green">${fmtMoney(summary.total_paid)}</div><div class="stat-label">Rent collected</div></div>
+          <div class="stat-box"><div class="stat-num red">${fmtMoney(summary.total_pending)}</div><div class="stat-label">Rent pending</div></div>
           <div class="stat-box"><div class="stat-num green">${fmtMoney(summary.advance_total_paid)}</div><div class="stat-label">Advance collected</div></div>
           <div class="stat-box"><div class="stat-num red">${fmtMoney(summary.advance_total_expected - summary.advance_total_paid)}</div><div class="stat-label">Advance pending</div></div>
         </div>
       </div>
-      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
-        ${summary.overdue_count > 0 ? `<span class="badge badge-red">${summary.overdue_count} overdue</span>` : ''}
-        ${summary.partial_count > 0 ? `<span class="badge badge-amber">${summary.partial_count} partial</span>` : ''}
-        ${summary.overdue_count === 0 && summary.partial_count === 0 ? `<span class="badge badge-green">All rent payments on track</span>` : ''}
+      <div class="segmented">
+        <button class="${rentView === 'room' ? 'active' : ''}" onclick="setRentView('room')">Room view</button>
+        <button class="${rentView === 'resident' ? 'active' : ''}" onclick="setRentView('resident')">Resident view</button>
       </div>
+      ${rentView === 'resident' ? `
+        <div class="chip-row">
+          ${chipDef.map(c => `<button class="chip ${rentStatusFilter === c.key ? 'active' : ''}" onclick="setRentStatusFilter('${c.key}')">${escapeHtml(c.label)}${c.count ? `<span class="chip-count">${c.count}</span>` : ''}</button>`).join('')}
+        </div>` : ''}
     </div>
+
+    ${renderExceptionsCard(exceptions)}
 
     ${rows.length === 0
       ? `<div class="card"><div class="empty-state"><div class="empty-state-title">No residents to bill this month</div></div></div>`
-      : rows.map(row => renderRentCard(row)).join('')
+      : filteredRows.length === 0
+        ? `<div class="card"><div class="empty-state"><div class="empty-state-title">Nothing matches this filter</div></div></div>`
+        : rentView === 'room' ? renderRoomView(filteredRows) : filteredRows.map(row => renderRentCard(row)).join('')
     }
   `;
 }
@@ -123,7 +241,7 @@ function renderRentCard(row) {
   const hasPaidSomething = !notDue && row.amount_paid > 0;
   const isPaid = row.status === 'paid';
   const advExpected = row.advance_deposit || 0;
-  const adv = advanceState(advExpected, row.advance_paid || 0);
+  const adv = row.advance; // server-computed by functions/_ledger.js -- same figure Room view and Residents tab use
   const totalOutstanding = Math.max(0, balance) + Math.max(0, adv.balance);
 
   return `

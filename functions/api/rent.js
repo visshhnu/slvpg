@@ -1,6 +1,6 @@
 // functions/api/rent.js
 import { requireAuth, jsonResponse, unauthorized, resolvePgId } from '../_auth.js';
-import { ensureLedgerRows, deriveRentStatus } from '../_ledger.js';
+import { ensureLedgerRows, deriveRentStatus, deriveAdvanceState, detectResidentExceptions } from '../_ledger.js';
 
 export async function onRequestGet({ request, env }) {
   const session = await requireAuth(request, env);
@@ -61,7 +61,10 @@ export async function onRequestGet({ request, env }) {
         `).bind(row.id).all()
       : { results: [] };
 
-    enriched.push({ ...row, status, payments });
+    const advance = deriveAdvanceState(row.advance_deposit, row.advance_paid);
+    const exceptions = await detectResidentExceptions(env, row.resident_id, advance);
+
+    enriched.push({ ...row, status, payments, advance, exceptions });
   }
 
   // Sort: overdue first, then partial, then pending, then not_due, then paid
@@ -80,5 +83,13 @@ export async function onRequestGet({ request, env }) {
     advance_total_paid: enriched.reduce((s, r) => s + (r.advance_paid || 0), 0),
   };
 
-  return jsonResponse({ summary, rows: enriched });
+  // Every resident with at least one exception, flattened for the
+  // Rent page's Exceptions section -- computed once here (detectResidentExceptions
+  // in functions/_ledger.js) so Residents/Reports can reuse the exact same list
+  // instead of re-deriving their own notion of "needs attention".
+  const exceptions = enriched
+    .filter(r => r.exceptions.length > 0)
+    .map(r => ({ resident_id: r.resident_id, resident_name: r.resident_name, floor: r.floor, room_number: r.room_number, bed_label: r.bed_label, items: r.exceptions }));
+
+  return jsonResponse({ summary, rows: enriched, exceptions });
 }
