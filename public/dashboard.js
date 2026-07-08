@@ -184,7 +184,7 @@ function renderDashboard(d, enquiries = []) {
       <div class="stat-grid">
         <div class="stat-box">
           <div class="stat-num green">${fmtMoney(d.rent_collected)}</div>
-          <div class="stat-label">Rent collected</div>
+          <div class="stat-label">Rent collected (period)</div>
         </div>
         <div class="stat-box">
           <div class="stat-num red">${fmtMoney(d.rent_pending)}</div>
