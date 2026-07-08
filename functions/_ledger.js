@@ -234,31 +234,47 @@ export async function detectExceptionsForPg(env, pgId, advanceStateByResident) {
   }
 
   const { results: flaggedPayments } = await env.DB.prepare(`
-    SELECT p.id, p.resident_id, p.amount, p.reference_note, p.payment_date FROM payments p
+    SELECT p.id, p.resident_id, p.amount, p.reference_note, p.payment_date, p.payment_type, p.payment_mode FROM payments p
     JOIN residents res ON res.id = p.resident_id
     WHERE res.pg_id = ? AND p.status IN ${ACTIVE_STATUS_SQL} AND p.reference_note IS NOT NULL
   `).bind(pgId).all();
   for (const p of flaggedPayments) {
     if (SUSPICIOUS_NOTE_PATTERN.test(p.reference_note)) {
+      // payment_id (+ type/mode/date) so the "Review" button can open the
+      // Edit Payment modal directly on THIS payment -- amount, type
+      // (rent/advance/**refund**), save, or delete are all already there.
+      // Before this, Review only opened the resident's whole detail page,
+      // leaving staff to go hunt for the actual payment themselves.
       add(p.resident_id, {
         type: 'flagged_note',
         label: 'Needs review',
         detail: `₹${p.amount.toLocaleString('en-IN')} on ${p.payment_date} was noted "${p.reference_note}" and never resolved.`,
+        payment_id: p.id,
+        payment_amount: p.amount,
+        payment_type: p.payment_type,
+        payment_date: p.payment_date,
+        payment_mode: p.payment_mode || 'cash',
       });
     }
   }
 
   const { results: openFlags } = await env.DB.prepare(`
-    SELECT c.id, c.reason, p.resident_id FROM corrections c
+    SELECT c.id, c.reason, c.record_id, c.record_type, p.resident_id FROM corrections c
     JOIN payments p ON p.id = c.record_id AND c.record_type = 'payment'
     JOIN residents res ON res.id = p.resident_id
     WHERE res.pg_id = ? AND c.status = 'open'
   `).bind(pgId).all();
   for (const f of openFlags) {
+    // These already went through "Flag a Correction" and have a real
+    // corrections-table row -- Review should open the full resolve flow
+    // (fix type/amount/refund, or dismiss), not just the resident page.
     add(f.resident_id, {
       type: 'open_correction',
       label: 'Correction pending review',
       detail: f.reason,
+      correction_id: f.id,
+      record_type: f.record_type,
+      record_id: f.record_id,
     });
   }
 

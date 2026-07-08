@@ -45,9 +45,6 @@ function filterRentRows(rows) {
 
 function renderExceptionsCard(exceptions) {
   if (!exceptions || exceptions.length === 0) return '';
-  // Every exception links straight to the resident's Payment History (where
-  // Edit/Delete already exist) so a flagged item can actually be acted on
-  // from here, not just read -- previously this card was informational only.
   return `
     <div class="exceptions-card">
       <div class="card-title">⚠ Needs attention (${exceptions.length})</div>
@@ -57,10 +54,31 @@ function renderExceptionsCard(exceptions) {
             <div class="exc-label">${escapeHtml(e.resident_name)} — ${escapeHtml(item.label)}</div>
             <div class="exc-detail">${escapeHtml(item.detail)}</div>
           </div>
-          <button class="btn btn-sm btn-outline" style="flex-shrink:0;" onclick="openResidentDetail(${e.resident_id})">Review</button>
+          <button class="btn btn-sm btn-outline" style="flex-shrink:0;" onclick="${reviewExceptionAction(item, e.resident_id)}">Review</button>
         </div>
       `).join('')).join('')}
     </div>`;
+}
+
+// Routes "Review" to whichever screen can actually resolve this specific
+// exception, instead of always dropping you on the resident's detail page
+// and leaving you to hunt for the actual payment yourself:
+//  - a flagged payment note ('flagged_note') opens the Edit Payment modal
+//    directly on THAT payment -- amount, type (rent/advance/**refund**),
+//    Save, or Delete are all already there.
+//  - an open correction flag ('open_correction', raised via "Flag a
+//    Correction") opens the full resolve-or-dismiss flow that already
+//    exists for it in Settings.
+//  - anything else (e.g. an aggregate overpaid-advance balance, which
+//    isn't any one single payment) falls back to the resident detail page.
+function reviewExceptionAction(item, residentId) {
+  if (item.type === 'flagged_note' && item.payment_id) {
+    return `currentOpenResidentId=${residentId}; openEditPaymentModal(${item.payment_id}, ${item.payment_amount}, '${item.payment_type}', '${item.payment_date}', '${item.payment_mode}')`;
+  }
+  if (item.type === 'open_correction' && item.correction_id) {
+    return `openResolveCorrectionModal(${item.correction_id}, '${item.record_type}', ${item.record_id})`;
+  }
+  return `openResidentDetail(${residentId})`;
 }
 
 // Room view: every bed on every floor, occupied or not -- billing rows are
