@@ -287,6 +287,7 @@ function showResidentDetailModal(r) {
     ` : ''}
     ${r.status === 'notice_given' ? `
       <button class="btn btn-danger" style="margin-bottom:10px;width:100%;" onclick="confirmMarkVacated(${r.id})">Mark as Vacated &amp; Free Bed</button>
+      <button class="btn btn-outline" style="margin-bottom:10px;width:100%;" onclick="cancelVacateNotice(${r.id})">Cancel Vacate Notice — Staying</button>
     ` : ''}
     ${r.status === 'vacated' ? `
       <button class="btn btn-outline" style="margin-bottom:10px;width:100%;" onclick="openUndoVacateForm(${r.id})">Undo Vacate — Bring Back</button>
@@ -847,6 +848,24 @@ function openVacateNoticeForm(residentId) {
     <input id="vac-vacate-date" type="date">
     <button class="btn btn-primary" onclick="submitVacateNotice(${residentId})">Save Notice</button>
   `);
+}
+
+async function cancelVacateNotice(residentId) {
+  // notice_given -> active. The resident never actually lost their bed (only
+  // 'vacated' clears bed_id server-side), so this is just clearing the
+  // notice/planned-vacate fields -- no bed picker needed, unlike a full
+  // Undo Vacate on someone who was already marked vacated.
+  try {
+    await api(`/residents/${residentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'active', notice_date: null, planned_vacate_date: null }),
+    });
+    closeModal();
+    showToast('Vacate notice cancelled. Resident is staying.', 'success');
+    loadResidents();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
 }
 
 async function submitVacateNotice(residentId) {
