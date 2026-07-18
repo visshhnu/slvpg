@@ -8,12 +8,15 @@ const EXPENSE_CATEGORIES = [
   { value: 'wifi', label: 'Wi-Fi' },
   { value: 'landlord_rent', label: 'Rent paid to Landlord' },
   { value: 'salary', label: 'Staff Salary' },
-  { value: 'housekeeping', label: 'Housekeeping' },
+  // Cleaning and Housekeeping overlapped and neither was ever actually used
+  // in real data -- merged into one so future entries don't have to guess
+  // which of the two nearly-identical options to pick.
+  { value: 'housekeeping', label: 'Housekeeping & Cleaning' },
   { value: 'maintenance', label: 'Maintenance' },
   { value: 'repairs', label: 'Repairs' },
   { value: 'plumbing', label: 'Plumbing' },
   { value: 'furniture', label: 'Furniture' },
-  { value: 'cleaning', label: 'Cleaning' },
+  { value: 'personal_family', label: 'Personal / Family' },
   { value: 'other', label: 'Other' },
 ];
 

@@ -7,7 +7,7 @@ import { requireAuth, jsonResponse, unauthorized, resolvePgId } from '../_auth.j
 export const EXPENSE_CATEGORIES = [
   'groceries', 'milk', 'electricity', 'water', 'wifi', 'landlord_rent',
   'salary', 'housekeeping', 'maintenance', 'repairs', 'plumbing',
-  'furniture', 'cleaning', 'other',
+  'furniture', 'personal_family', 'other',
 ];
 
 export async function onRequestGet({ request, env }) {
