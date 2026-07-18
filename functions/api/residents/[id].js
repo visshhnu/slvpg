@@ -149,12 +149,39 @@ export async function onRequestPatch({ request, env, params }) {
       ).bind(...binds).run();
     } catch (e) {
       const msg = String((e && e.message) || e);
-      if (msg.includes('no such column') || msg.includes('has no column')) {
+      if ((msg.includes('no such column') || msg.includes('has no column')) && msg.includes('custom_advance')) {
+        // custom_advance migration not applied to this DB yet -- retry without
+        // it rather than failing the whole edit (name/phone/etc. should still
+        // save even if the advance override can't, same fallback pattern as
+        // residents.js POST for custom_rent on older schemas).
+        const idx = allowedFields.indexOf('custom_advance');
+        const bodyHadCustomAdvance = idx !== -1 && 'custom_advance' in body;
+        if (bodyHadCustomAdvance) {
+          const updateIdx = updates.findIndex(u => u.startsWith('custom_advance'));
+          if (updateIdx !== -1) {
+            updates.splice(updateIdx, 1);
+            binds.splice(updateIdx, 1);
+          }
+        }
+        if (updates.length === 0) {
+          return jsonResponse({
+            error: 'The advance override can\'t be saved until an admin runs the latest migrations (wrangler d1 migrations apply). No changes were saved.'
+          }, 500);
+        }
+        try {
+          await env.DB.prepare(
+            `UPDATE residents SET ${updates.join(', ')} WHERE id = ?`
+          ).bind(...binds).run();
+        } catch (e2) {
+          return jsonResponse({ error: 'Could not save changes: ' + String((e2 && e2.message) || e2) }, 500);
+        }
+      } else if (msg.includes('no such column') || msg.includes('has no column')) {
         return jsonResponse({
           error: 'This update includes a field your database doesn\'t have yet. Ask an admin to run the latest migrations (wrangler d1 migrations apply), then try again. (' + msg + ')'
         }, 500);
+      } else {
+        return jsonResponse({ error: 'Could not save changes: ' + msg }, 500);
       }
-      return jsonResponse({ error: 'Could not save changes: ' + msg }, 500);
     }
 
     // If custom_rent changed, OR the resident was moved to a different bed

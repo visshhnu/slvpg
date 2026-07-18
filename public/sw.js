@@ -102,7 +102,14 @@ self.addEventListener('fetch', event => {
           new Promise((_, reject) => setTimeout(() => reject(new Error('sw-fetch-timeout')), JS_NETWORK_TIMEOUT_MS)),
         ]);
         if (response.ok) {
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, response.clone()));
+          // Clone synchronously, right here -- caches.open() is itself async,
+          // so deferring clone() until after it resolves (the old code) races
+          // the browser, which starts consuming the returned response's body
+          // as soon as this function returns. By the time that .then() ran,
+          // the body was sometimes already disturbed, throwing "Response body
+          // is already used" on clone().
+          const responseToCache = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, responseToCache));
         }
         return response;
       } catch {

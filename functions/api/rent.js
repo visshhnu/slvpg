@@ -23,20 +23,44 @@ export async function onRequestGet({ request, env }) {
   // hiding their advance tracker and forcing staff to log advance payments
   // through the rent "Collect" button instead — which then wrongly counted
   // booking deposits as rent collected.
-  const { results } = await env.DB.prepare(`
-    SELECT
-      rl.id, rl.amount_due, rl.amount_paid, rl.status, rl.due_date,
-      res.id as resident_id, res.name as resident_name, res.phone as resident_phone,
-      res.status as resident_status, res.advance_paid, res.join_date, res.custom_advance,
-      r.floor, r.room_number, r.advance_deposit, r.refundable_amount,
-      b.bed_label
-    FROM residents res
-    LEFT JOIN rent_ledger rl ON rl.resident_id = res.id AND rl.month = ?
-    LEFT JOIN beds b ON b.id = res.bed_id
-    LEFT JOIN rooms r ON r.id = b.room_id
-    WHERE res.pg_id = ? AND res.status IN ('active', 'notice_given')
-    ORDER BY r.floor, r.room_number, b.bed_label
-  `).bind(month, pgId).all();
+  let queryResult;
+  try {
+    queryResult = await env.DB.prepare(`
+      SELECT
+        rl.id, rl.amount_due, rl.amount_paid, rl.status, rl.due_date,
+        res.id as resident_id, res.name as resident_name, res.phone as resident_phone,
+        res.status as resident_status, res.advance_paid, res.join_date, res.custom_advance,
+        r.floor, r.room_number, r.advance_deposit, r.refundable_amount,
+        b.bed_label
+      FROM residents res
+      LEFT JOIN rent_ledger rl ON rl.resident_id = res.id AND rl.month = ?
+      LEFT JOIN beds b ON b.id = res.bed_id
+      LEFT JOIN rooms r ON r.id = b.room_id
+      WHERE res.pg_id = ? AND res.status IN ('active', 'notice_given')
+      ORDER BY r.floor, r.room_number, b.bed_label
+    `).bind(month, pgId).all();
+  } catch (e) {
+    const msg = String((e && e.message) || e);
+    if (!msg.includes('no such column') && !msg.includes('has no column')) throw e;
+    // custom_advance migration not applied to this DB yet -- fall back to the
+    // pre-migration query so the page still works (advance falls back to the
+    // room default, same as before that migration existed).
+    queryResult = await env.DB.prepare(`
+      SELECT
+        rl.id, rl.amount_due, rl.amount_paid, rl.status, rl.due_date,
+        res.id as resident_id, res.name as resident_name, res.phone as resident_phone,
+        res.status as resident_status, res.advance_paid, res.join_date,
+        r.floor, r.room_number, r.advance_deposit, r.refundable_amount,
+        b.bed_label
+      FROM residents res
+      LEFT JOIN rent_ledger rl ON rl.resident_id = res.id AND rl.month = ?
+      LEFT JOIN beds b ON b.id = res.bed_id
+      LEFT JOIN rooms r ON r.id = b.room_id
+      WHERE res.pg_id = ? AND res.status IN ('active', 'notice_given')
+      ORDER BY r.floor, r.room_number, b.bed_label
+    `).bind(month, pgId).all();
+  }
+  const { results } = queryResult;
 
   const today = new Date().toISOString().slice(0, 10);
 

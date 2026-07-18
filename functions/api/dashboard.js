@@ -4,6 +4,58 @@ import { ensureLedgerRows } from '../_ledger.js';
 
 function toDateStr(d) { return d.toISOString().slice(0, 10); }
 
+// custom_advance's migration may not be applied to this DB yet -- fall back
+// to the pre-migration query (no res.custom_advance column reference) so the
+// dashboard still loads instead of 500ing. Once applied, the primary query
+// just works and this fallback never triggers.
+async function selectAdvanceRows(env, pgId) {
+  try {
+    return await env.DB.prepare(`
+      SELECT res.advance_paid, res.custom_advance, r.advance_deposit
+      FROM residents res
+      LEFT JOIN beds b ON b.id = res.bed_id
+      LEFT JOIN rooms r ON r.id = b.room_id
+      WHERE res.pg_id = ? AND res.status != 'vacated'
+    `).bind(pgId).all();
+  } catch (e) {
+    const msg = String((e && e.message) || e);
+    if (!msg.includes('no such column') && !msg.includes('has no column')) throw e;
+    return await env.DB.prepare(`
+      SELECT res.advance_paid, r.advance_deposit
+      FROM residents res
+      LEFT JOIN beds b ON b.id = res.bed_id
+      LEFT JOIN rooms r ON r.id = b.room_id
+      WHERE res.pg_id = ? AND res.status != 'vacated'
+    `).bind(pgId).all();
+  }
+}
+
+async function selectBookingsInPeriod(env, pgId, from, to) {
+  try {
+    return await env.DB.prepare(`
+      SELECT res.id, res.name, res.join_date, res.status, res.advance_paid, res.custom_advance,
+        r.floor, r.room_number, r.advance_deposit, b.bed_label
+      FROM residents res
+      LEFT JOIN beds b ON b.id = res.bed_id
+      LEFT JOIN rooms r ON r.id = b.room_id
+      WHERE res.pg_id = ? AND res.join_date BETWEEN ? AND ?
+      ORDER BY res.join_date ASC
+    `).bind(pgId, from, to).all();
+  } catch (e) {
+    const msg = String((e && e.message) || e);
+    if (!msg.includes('no such column') && !msg.includes('has no column')) throw e;
+    return await env.DB.prepare(`
+      SELECT res.id, res.name, res.join_date, res.status, res.advance_paid,
+        r.floor, r.room_number, r.advance_deposit, b.bed_label
+      FROM residents res
+      LEFT JOIN beds b ON b.id = res.bed_id
+      LEFT JOIN rooms r ON r.id = b.room_id
+      WHERE res.pg_id = ? AND res.join_date BETWEEN ? AND ?
+      ORDER BY res.join_date ASC
+    `).bind(pgId, from, to).all();
+  }
+}
+
 // Resolve a `range` query param into a concrete [from, to] date pair (inclusive).
 // Falls back to "this calendar month so far" when no range/from/to is given,
 // which matches the dashboard's original default behaviour.
@@ -100,13 +152,7 @@ export async function onRequestGet({ request, env }) {
       ORDER BY res.planned_vacate_date ASC
     `).bind(pgId).all(),
     env.DB.prepare(`SELECT id, floor, room_number, maintenance_note FROM rooms WHERE pg_id = ? AND needs_maintenance = 1`).bind(pgId).all(),
-    env.DB.prepare(`
-      SELECT res.advance_paid, res.custom_advance, r.advance_deposit
-      FROM residents res
-      LEFT JOIN beds b ON b.id = res.bed_id
-      LEFT JOIN rooms r ON r.id = b.room_id
-      WHERE res.pg_id = ? AND res.status != 'vacated'
-    `).bind(pgId).all(),
+    selectAdvanceRows(env, pgId),
     // Period-based actuals: driven by real transaction dates, so any range works
     // (yesterday, today, 7 days, custom — not just "this calendar month").
     env.DB.prepare(`SELECT amount FROM payments WHERE pg_id = ? AND payment_type = 'rent' AND status IN ('posted', 'migrated') AND payment_date BETWEEN ? AND ?`).bind(pgId, period.from, period.to).all(),
@@ -115,15 +161,7 @@ export async function onRequestGet({ request, env }) {
     // Bookings (by actual join_date, not when the record was entered into the
     // system) — works for past joins AND future/upcoming bookings, since a
     // Custom range with a future "to" date will naturally include them.
-    env.DB.prepare(`
-      SELECT res.id, res.name, res.join_date, res.status, res.advance_paid, res.custom_advance,
-        r.floor, r.room_number, r.advance_deposit, b.bed_label
-      FROM residents res
-      LEFT JOIN beds b ON b.id = res.bed_id
-      LEFT JOIN rooms r ON r.id = b.room_id
-      WHERE res.pg_id = ? AND res.join_date BETWEEN ? AND ?
-      ORDER BY res.join_date ASC
-    `).bind(pgId, period.from, period.to).all(),
+    selectBookingsInPeriod(env, pgId, period.from, period.to),
     // Sharing-type breakdown: how many single-sharing vs double-sharing beds
     // are occupied right now vs total, for the occupancy card.
     env.DB.prepare(`
