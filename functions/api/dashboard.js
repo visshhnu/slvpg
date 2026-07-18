@@ -101,7 +101,7 @@ export async function onRequestGet({ request, env }) {
     `).bind(pgId).all(),
     env.DB.prepare(`SELECT id, floor, room_number, maintenance_note FROM rooms WHERE pg_id = ? AND needs_maintenance = 1`).bind(pgId).all(),
     env.DB.prepare(`
-      SELECT res.advance_paid, r.advance_deposit
+      SELECT res.advance_paid, res.custom_advance, r.advance_deposit
       FROM residents res
       LEFT JOIN beds b ON b.id = res.bed_id
       LEFT JOIN rooms r ON r.id = b.room_id
@@ -116,7 +116,7 @@ export async function onRequestGet({ request, env }) {
     // system) — works for past joins AND future/upcoming bookings, since a
     // Custom range with a future "to" date will naturally include them.
     env.DB.prepare(`
-      SELECT res.id, res.name, res.join_date, res.status, res.advance_paid,
+      SELECT res.id, res.name, res.join_date, res.status, res.advance_paid, res.custom_advance,
         r.floor, r.room_number, r.advance_deposit, b.bed_label
       FROM residents res
       LEFT JOIN beds b ON b.id = res.bed_id
@@ -150,7 +150,8 @@ export async function onRequestGet({ request, env }) {
   const rentCollectedInPeriod = rentPaymentsInPeriod.results.reduce((s, r) => s + r.amount, 0);
   const advanceCollectedInPeriod = advancePaymentsInPeriod.results.reduce((s, r) => s + r.amount, 0);
 
-  const advanceTotalDue = advanceRows.results.reduce((s, r) => s + (r.advance_deposit || 0), 0);
+  // custom_advance overrides the room's default advance_deposit for that one bed.
+  const advanceTotalDue = advanceRows.results.reduce((s, r) => s + ((r.custom_advance != null ? r.custom_advance : r.advance_deposit) || 0), 0);
   const advanceTotalCollected = advanceRows.results.reduce((s, r) => s + (r.advance_paid || 0), 0);
 
   // Refund eligibility check for anyone with a notice on file (30-day rule)
@@ -161,11 +162,15 @@ export async function onRequestGet({ request, env }) {
   });
 
   const todayStr = today;
-  const bookingsList = bookingsInPeriod.results.map(b => ({
-    ...b,
-    is_future: b.join_date > todayStr,
-    advance_balance: (b.advance_deposit || 0) - (b.advance_paid || 0),
-  }));
+  const bookingsList = bookingsInPeriod.results.map(b => {
+    const effectiveAdvance = (b.custom_advance != null ? b.custom_advance : b.advance_deposit) || 0;
+    return {
+      ...b,
+      advance_deposit: effectiveAdvance, // overwrite room default with the per-bed effective target
+      is_future: b.join_date > todayStr,
+      advance_balance: effectiveAdvance - (b.advance_paid || 0),
+    };
+  });
 
   return jsonResponse({
     total_beds: totalBeds.c,

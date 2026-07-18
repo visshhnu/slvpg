@@ -27,7 +27,7 @@ export async function onRequestGet({ request, env }) {
     SELECT
       rl.id, rl.amount_due, rl.amount_paid, rl.status, rl.due_date,
       res.id as resident_id, res.name as resident_name, res.phone as resident_phone,
-      res.status as resident_status, res.advance_paid, res.join_date,
+      res.status as resident_status, res.advance_paid, res.join_date, res.custom_advance,
       r.floor, r.room_number, r.advance_deposit, r.refundable_amount,
       b.bed_label
     FROM residents res
@@ -40,7 +40,26 @@ export async function onRequestGet({ request, env }) {
 
   const today = new Date().toISOString().slice(0, 10);
 
-  // For each row, also fetch the individual payment transactions for this month
+  // Batched: one query for every row's payment history, instead of one
+  // query PER row (was an O(N) sequential round-trip pattern -- with the
+  // exceptions batching already fixed, this per-row loop was the last
+  // remaining N+1 on this screen).
+  const ledgerIds = results.map(r => r.id).filter(Boolean);
+  let paymentsByLedgerId = new Map();
+  if (ledgerIds.length > 0) {
+    const placeholders = ledgerIds.map(() => '?').join(',');
+    const { results: allPayments } = await env.DB.prepare(`
+      SELECT id, rent_ledger_id, amount, payment_mode, payment_type, payment_date, reference_note, collected_by
+      FROM payments
+      WHERE rent_ledger_id IN (${placeholders}) AND status IN ('posted', 'migrated')
+      ORDER BY payment_date ASC, created_at ASC
+    `).bind(...ledgerIds).all();
+    for (const p of allPayments) {
+      if (!paymentsByLedgerId.has(p.rent_ledger_id)) paymentsByLedgerId.set(p.rent_ledger_id, []);
+      paymentsByLedgerId.get(p.rent_ledger_id).push(p);
+    }
+  }
+
   const enriched = [];
   for (const row of results) {
     // Compute real status (overdue if past 5th and not fully paid). Residents
@@ -49,19 +68,11 @@ export async function onRequestGet({ request, env }) {
     // deriveRentStatus is the single shared implementation of this -- the
     // same one residents.js uses -- so the two screens can't disagree.
     const status = row.id ? deriveRentStatus(row, today) : 'not_due';
-
-    // Fetch payment history for this ledger row (none if row.id is null).
-    // Only 'posted' payments -- a deleted/voided one shouldn't reappear here.
-    const { results: payments } = row.id
-      ? await env.DB.prepare(`
-          SELECT id, amount, payment_mode, payment_type, payment_date, reference_note, collected_by
-          FROM payments
-          WHERE rent_ledger_id = ? AND status IN ('posted', 'migrated')
-          ORDER BY payment_date ASC, created_at ASC
-        `).bind(row.id).all()
-      : { results: [] };
-
-    const advance = deriveAdvanceState(row.advance_deposit, row.advance_paid);
+    const payments = row.id ? (paymentsByLedgerId.get(row.id) || []) : [];
+    // custom_advance overrides the room's default advance_deposit for this
+    // one bed, same as custom_rent already does for rent.
+    const effectiveAdvance = row.custom_advance != null ? row.custom_advance : row.advance_deposit;
+    const advance = deriveAdvanceState(effectiveAdvance, row.advance_paid);
 
     enriched.push({ ...row, status, payments, advance });
   }
@@ -86,7 +97,7 @@ export async function onRequestGet({ request, env }) {
     total_pending: billedRows.reduce((s, r) => s + (r.amount_due - r.amount_paid), 0),
     overdue_count: enriched.filter(r => r.status === 'overdue').length,
     partial_count: enriched.filter(r => r.status === 'partial').length,
-    advance_total_expected: enriched.reduce((s, r) => s + (r.advance_deposit || 0), 0),
+    advance_total_expected: enriched.reduce((s, r) => s + (r.advance.expected || 0), 0),
     advance_total_paid: enriched.reduce((s, r) => s + (r.advance_paid || 0), 0),
   };
 

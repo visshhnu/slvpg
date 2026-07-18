@@ -23,7 +23,8 @@ export async function onRequestGet({ request, env, params }) {
   if (!session) return unauthorized();
 
   const resident = await env.DB.prepare(`
-    SELECT res.*, b.bed_label, r.floor, r.room_number, r.monthly_rent, r.sharing_type, r.pg_id
+    SELECT res.*, b.bed_label, r.floor, r.room_number, r.monthly_rent, r.sharing_type, r.pg_id,
+      r.advance_deposit, r.refundable_amount
     FROM residents res
     LEFT JOIN beds b ON b.id = res.bed_id
     LEFT JOIN rooms r ON r.id = b.room_id
@@ -63,7 +64,12 @@ export async function onRequestGet({ request, env, params }) {
     due: currentLedgerRow ? currentLedgerRow.amount_due - currentLedgerRow.amount_paid : 0,
     status: deriveRentStatus(currentLedgerRow, today),
   };
-  const advance = deriveAdvanceState(resident.advance_deposit, resident.advance_paid);
+  // custom_advance overrides the room's default advance_deposit for this bed,
+  // same as custom_rent already does for rent. resident.advance_deposit was
+  // previously never selected above at all -- this card's advance figures
+  // were showing $0 target regardless of the room's real deposit.
+  const effectiveAdvance = resident.custom_advance != null ? resident.custom_advance : resident.advance_deposit;
+  const advance = deriveAdvanceState(effectiveAdvance, resident.advance_paid);
 
   return jsonResponse({ ...resident, payments, ledger, refund_eligibility: refundEligibility, rent_this_month, advance });
 }
@@ -88,7 +94,7 @@ export async function onRequestPatch({ request, env, params }) {
       'status', 'notice_date', 'planned_vacate_date', 'actual_vacate_date',
       'room_inspection_done', 'room_inspection_notes', 'deductions', 'deduction_reason',
       'refund_paid', 'refund_paid_date', 'notes', 'advance_paid', 'bed_id', 'join_date',
-      'agreement_signed', 'agreement_url', 'police_verification_status', 'custom_rent'
+      'agreement_signed', 'agreement_url', 'police_verification_status', 'custom_rent', 'custom_advance'
     ];
 
     const updates = [];

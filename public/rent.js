@@ -192,9 +192,12 @@ function renderPaymentHistory(payments) {
 }
 
 function renderAdvanceRow(row) {
-  const expected = row.advance_deposit || 0;
-  if (expected === 0) return '';
-  const adv = advanceState(expected, row.advance_paid || 0);
+  // row.advance is server-computed by functions/_ledger.js and already
+  // accounts for custom_advance overriding the room's default -- reusing it
+  // here (instead of recomputing from the raw room rate) keeps this in sync
+  // with Room view and the Residents tab.
+  const adv = row.advance || advanceState(row.advance_deposit || 0, row.advance_paid || 0);
+  if (adv.expected === 0) return '';
   const done = adv.balance <= 0;
   return `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:0.5px solid var(--border);">
@@ -270,8 +273,8 @@ function renderRentCard(row) {
   const balance = notDue ? 0 : row.amount_due - row.amount_paid;
   const hasPaidSomething = !notDue && row.amount_paid > 0;
   const isPaid = row.status === 'paid';
-  const advExpected = row.advance_deposit || 0;
   const adv = row.advance; // server-computed by functions/_ledger.js -- same figure Room view and Residents tab use
+  const advExpected = adv.expected || 0;
   const totalOutstanding = Math.max(0, balance) + Math.max(0, adv.balance);
 
   return `

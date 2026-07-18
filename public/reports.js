@@ -279,7 +279,12 @@ async function renderRentReport(el, month, from, to) {
 // ─────────────────────────────────────────
 async function renderAdvanceReport(el) {
   const res = await api('/residents');
-  const active = (res.residents || res).filter(r => r.status !== 'vacated');
+  // custom_advance overrides the room's default advance_deposit for that one
+  // bed -- normalize it here so every read below (including the sort) sees
+  // the effective figure without each one having to know about the override.
+  const active = (res.residents || res)
+    .filter(r => r.status !== 'vacated')
+    .map(r => ({ ...r, advance_deposit: (r.custom_advance != null ? r.custom_advance : r.advance_deposit) }));
   const totalExp = active.reduce((s, r) => s + (r.advance_deposit || 0), 0);
   const totalPaid = active.reduce((s, r) => s + (r.advance_paid || 0), 0);
 
@@ -427,7 +432,10 @@ async function renderResidentsReport(el) {
       </div>
     </div>
 
-    ${residents.map(r => `
+    ${residents.map(r => {
+      const effRent = r.custom_rent != null ? r.custom_rent : r.monthly_rent;
+      const effAdvance = r.custom_advance != null ? r.custom_advance : r.advance_deposit;
+      return `
       <div class="card" style="margin-bottom:6px;padding:10px 12px;">
         <div style="display:flex;justify-content:space-between;">
           <div>
@@ -436,12 +444,13 @@ async function renderResidentsReport(el) {
             <div style="font-size:11px;color:var(--ink-soft);">Joined ${fmtDate(r.join_date)} · ${escapeHtml(r.occupation||'—')}</div>
           </div>
           <div style="text-align:right;font-size:11.5px;">
-            <div style="font-weight:600;">${fmtMoney(r.monthly_rent||0)}/mo</div>
-            <div style="color:var(--ink-soft);">Adv ${fmtMoney(r.advance_paid||0)}/${fmtMoney(r.advance_deposit||0)}</div>
+            <div style="font-weight:600;">${fmtMoney(effRent||0)}/mo</div>
+            <div style="color:var(--ink-soft);">Adv ${fmtMoney(r.advance_paid||0)}/${fmtMoney(effAdvance||0)}</div>
           </div>
         </div>
       </div>
-    `).join('')}
+    `;
+    }).join('')}
 
     <button class="btn btn-primary" style="width:100%;margin-top:12px;" onclick="printGenericReport()">Print / Save as PDF</button>
   `;

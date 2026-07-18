@@ -51,29 +51,48 @@ export async function ensureLedgerRows(env, pgId, month) {
       AND res.join_date <= ?
   `).bind(pgId, month, today).all();
 
+  if (dueResidents.length === 0) return;
+
+  // One query for every rent_ledger row that already exists this month,
+  // instead of one existence-check per resident. This function runs on
+  // EVERY Rent/Residents/Dashboard load, so that used to mean an O(N)
+  // sequential round-trip to D1 just to find out that almost every row
+  // already existed and nothing needed to change -- the single biggest
+  // contributor to those screens feeling slow as the resident count grew.
+  const { results: existingRows } = await env.DB.prepare(
+    'SELECT id, resident_id, amount_due FROM rent_ledger WHERE pg_id = ? AND month = ?'
+  ).bind(pgId, month).all();
+  const existingByResident = new Map(existingRows.map(r => [r.resident_id, r]));
+
   const dueDate = `${month}-05`;
+  const inserts = [];
 
   for (const res of dueResidents) {
     // custom_rent (per-bed override) wins over the room's shared monthly_rent
     const expectedAmount = res.custom_rent != null ? res.custom_rent : res.monthly_rent;
-
-    const existing = await env.DB.prepare(
-      'SELECT id, amount_due FROM rent_ledger WHERE resident_id = ? AND month = ?'
-    ).bind(res.id, month).first();
+    const existing = existingByResident.get(res.id);
 
     if (!existing) {
-      await env.DB.prepare(
+      inserts.push(env.DB.prepare(
         `INSERT INTO rent_ledger (pg_id, resident_id, month, due_date, amount_due, status)
          VALUES (?, ?, ?, ?, ?, 'pending')`
-      ).bind(pgId, res.id, month, dueDate, expectedAmount).run();
+      ).bind(pgId, res.id, month, dueDate, expectedAmount));
     } else if (isRealCurrentMonth && existing.amount_due !== expectedAmount) {
       // The room's monthly_rent or the resident's custom_rent was edited
       // AFTER this month's ledger row was already created -- that row was a
       // one-time snapshot and never re-synced on its own. Only self-heal the
       // real, still-open current month (never a past month someone is just
       // viewing on the Rent tab) so a closed month's history never shifts.
+      // Rare in practice (only right after a rent edit), so this stays a
+      // targeted per-row call rather than joining the batch below.
       await recomputeRentLedgerRow(env, existing.id, expectedAmount);
     }
+  }
+
+  // All missing rows created in a single round-trip via D1's batch API,
+  // instead of one INSERT per missing resident.
+  if (inserts.length > 0) {
+    await env.DB.batch(inserts);
   }
 }
 

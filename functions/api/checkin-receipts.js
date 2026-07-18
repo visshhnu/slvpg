@@ -81,6 +81,12 @@ export async function onRequestPost({ request, env }) {
 
   const receiptNumber = await generateReceiptNumber(env, pgId);
 
+  // custom_rent/custom_advance override the room's default rate for this one
+  // bed -- the receipt should freeze what was actually agreed for this
+  // resident, not the generic room rate.
+  const effectiveRent = resident.custom_rent != null ? resident.custom_rent : resident.monthly_rent;
+  const effectiveAdvance = resident.custom_advance != null ? resident.custom_advance : resident.advance_deposit;
+
   const result = await env.DB.prepare(`
     INSERT INTO checkin_receipts (
       pg_id, resident_id, receipt_number, room_floor, room_number, bed_label, sharing_type,
@@ -89,7 +95,7 @@ export async function onRequestPost({ request, env }) {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     pgId, resident_id, receiptNumber, resident.floor, resident.room_number, resident.bed_label,
-    resident.sharing_type, resident.join_date, resident.monthly_rent, resident.advance_deposit,
+    resident.sharing_type, resident.join_date, effectiveRent, effectiveAdvance,
     resident.refundable_amount, resident.advance_paid,
     JSON.stringify(facilities), STANDARD_TERMS, session.name
   ).run();

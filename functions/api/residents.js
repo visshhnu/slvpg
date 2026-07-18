@@ -36,36 +36,45 @@ export async function onRequestGet({ request, env }) {
 
   const { results } = await env.DB.prepare(query).bind(...binds).all();
 
-  // Enrich each resident with current month rent status + check-in receipt flag
-  const enriched = [];
-  for (const res of results) {
-    // Current month rent ledger row
-    const rentRow = await env.DB.prepare(
-      `SELECT amount_due, amount_paid, status, due_date
-       FROM rent_ledger WHERE resident_id = ? AND month = ?`
-    ).bind(res.id, currentMonth).first();
+  // Batched: one query for every resident's current-month rent_ledger row,
+  // one for which residents have a check-in receipt at all -- instead of 2
+  // queries PER resident (was an O(2N) sequential round-trip pattern, the
+  // main reason this screen got slower as more residents were added).
+  const residentIds = results.map(r => r.id);
+  let ledgerByResident = new Map();
+  let checkedInIds = new Set();
+  if (residentIds.length > 0) {
+    const placeholders = residentIds.map(() => '?').join(',');
+    const [ledgerResult, receiptResult] = await Promise.all([
+      env.DB.prepare(
+        `SELECT resident_id, amount_due, amount_paid, status, due_date
+         FROM rent_ledger WHERE month = ? AND resident_id IN (${placeholders})`
+      ).bind(currentMonth, ...residentIds).all(),
+      env.DB.prepare(
+        `SELECT DISTINCT resident_id FROM checkin_receipts WHERE resident_id IN (${placeholders})`
+      ).bind(...residentIds).all(),
+    ]);
+    ledgerByResident = new Map(ledgerResult.results.map(r => [r.resident_id, r]));
+    checkedInIds = new Set(receiptResult.results.map(r => r.resident_id));
+  }
 
-    // Check if a check-in receipt exists
-    const receipt = await env.DB.prepare(
-      `SELECT id FROM checkin_receipts WHERE resident_id = ? LIMIT 1`
-    ).bind(res.id).first();
-
-    // Same overdue derivation rent.js uses -- deriveRentStatus is the only
-    // place that compares "today" to a due_date, so the two screens can't
-    // disagree about whether a resident is overdue.
-    const today = new Date().toISOString().slice(0, 10);
+  // Same overdue derivation rent.js uses -- deriveRentStatus is the only
+  // place that compares "today" to a due_date, so the two screens can't
+  // disagree about whether a resident is overdue.
+  const today = new Date().toISOString().slice(0, 10);
+  const enriched = results.map(res => {
+    const rentRow = ledgerByResident.get(res.id) || null;
     const rentStatus = rentRow ? deriveRentStatus(rentRow, today) : null;
-
-    enriched.push({
+    return {
       ...res,
       rent_this_month: rentRow ? {
         amount_due: rentRow.amount_due,
         amount_paid: rentRow.amount_paid,
         status: rentStatus,
       } : null,
-      has_checkin_receipt: !!receipt,
-    });
-  }
+      has_checkin_receipt: checkedInIds.has(res.id),
+    };
+  });
 
   return jsonResponse(enriched);
 }
@@ -84,7 +93,7 @@ export async function onRequestPost({ request, env }) {
       name, photo_url, phone, alt_phone, aadhaar_number, aadhaar_photo_url, aadhaar_back_photo_url,
       pan_number, pan_photo_url, id_proof_type, id_proof_number, id_proof_photo_url, passport_photo_url,
       occupation, company_or_college, emergency_contact_name, emergency_contact_phone,
-      bed_id, join_date, advance_paid, agreement_signed, police_verification_status, notes, custom_rent
+      bed_id, join_date, advance_paid, agreement_signed, police_verification_status, notes, custom_rent, custom_advance
     } = body;
 
     if (!name || !phone || !bed_id || !join_date) {
@@ -111,8 +120,8 @@ export async function onRequestPost({ request, env }) {
           pg_id, name, photo_url, phone, alt_phone, aadhaar_number, aadhaar_photo_url, aadhaar_back_photo_url,
           pan_number, pan_photo_url, id_proof_type, id_proof_number, id_proof_photo_url, passport_photo_url,
           occupation, company_or_college, emergency_contact_name, emergency_contact_phone,
-          bed_id, join_date, advance_paid, agreement_signed, police_verification_status, status, notes, custom_rent
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+          bed_id, join_date, advance_paid, agreement_signed, police_verification_status, status, notes, custom_rent, custom_advance
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
       `).bind(
         pgId, name, photo_url || null, phone, alt_phone || null,
         aadhaar_number || null, aadhaar_photo_url || null, aadhaar_back_photo_url || null,
@@ -122,7 +131,7 @@ export async function onRequestPost({ request, env }) {
         emergency_contact_name || null, emergency_contact_phone || null,
         bed_id, join_date, advance_paid || 0,
         agreement_signed ? 1 : 0, police_verification_status || 'pending', notes || null,
-        custom_rent || null
+        custom_rent || null, custom_advance || null
       ).run();
     } catch (e) {
       const msg = String((e && e.message) || e);

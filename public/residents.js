@@ -63,7 +63,7 @@ function setResidentFilter(f) {
 
 function renderResidentCard(r) {
   const rent = r.rent_this_month;
-  const advExpected = r.advance_deposit || 0;
+  const advExpected = (r.custom_advance != null ? r.custom_advance : r.advance_deposit) || 0;
   const adv = advanceState(advExpected, r.advance_paid || 0);
   const advBalance = adv.balance;
 
@@ -288,6 +288,9 @@ function showResidentDetailModal(r) {
     ${r.status === 'notice_given' ? `
       <button class="btn btn-danger" style="margin-bottom:10px;width:100%;" onclick="confirmMarkVacated(${r.id})">Mark as Vacated &amp; Free Bed</button>
     ` : ''}
+    ${r.status === 'vacated' ? `
+      <button class="btn btn-outline" style="margin-bottom:10px;width:100%;" onclick="openUndoVacateForm(${r.id})">Undo Vacate — Bring Back</button>
+    ` : ''}
 
     <div class="card-title" style="margin-top:8px;">Payment History</div>
     ${r.payments.length === 0 ? `<div class="empty-state" style="padding:18px;">No payments recorded yet.</div>` :
@@ -402,6 +405,9 @@ async function openEditResidentModal(residentId) {
     <label>Custom rent for this bed <span style="font-weight:400;color:var(--ink-soft);">(leave blank to use room's default rent)</span></label>
     <input id="er-custom-rent" type="number" value="${r.custom_rent != null ? r.custom_rent : ''}" placeholder="Room default: ${fmtMoney(r.monthly_rent || 0)}">
 
+    <label>Custom advance for this bed <span style="font-weight:400;color:var(--ink-soft);">(leave blank to use room's default advance)</span></label>
+    <input id="er-custom-advance" type="number" value="${r.custom_advance != null ? r.custom_advance : ''}" placeholder="Room default: ${fmtMoney(r.advance_deposit || 0)}">
+
     <div class="card" style="margin:14px 0;">
       <div class="card-title">Identity Documents</div>
       <p style="font-size:12px;color:var(--ink-soft);margin:-4px 0 10px;">Upload a new photo only if you need to replace the existing one.</p>
@@ -437,6 +443,7 @@ async function openEditResidentModal(residentId) {
 
 async function submitEditResident(residentId) {
   const customRentRaw = document.getElementById('er-custom-rent').value;
+  const customAdvanceRaw = document.getElementById('er-custom-advance').value;
   const body = {
     name: document.getElementById('er-name').value.trim(),
     phone: document.getElementById('er-phone').value.trim(),
@@ -452,6 +459,7 @@ async function submitEditResident(residentId) {
     police_verification_status: document.getElementById('er-police').value,
     agreement_signed: document.getElementById('er-agreement').value === '1',
     custom_rent: customRentRaw ? parseInt(customRentRaw, 10) : null,
+    custom_advance: customAdvanceRaw ? parseInt(customAdvanceRaw, 10) : null,
     notes: document.getElementById('er-notes').value.trim() || null,
     ...(pendingEditResidentDocs || {}),
   };
@@ -893,6 +901,85 @@ async function submitMarkVacated(residentId) {
   }
 }
 
+async function openUndoVacateForm(residentId) {
+  let r;
+  try { r = await api(`/residents/${residentId}`); } catch (e) { showToast('Could not load resident.', 'error'); return; }
+
+  let rooms = [];
+  try { rooms = await api('/rooms'); } catch { rooms = state.rooms || []; }
+  state.rooms = rooms;
+
+  const vacantBeds = [];
+  rooms.forEach(room => {
+    room.beds.forEach(bed => {
+      if (!bed.occupied && !bed.reserved) {
+        vacantBeds.push({ id: bed.id, label: `${room.floor} ${room.room_number}-${bed.label} (${fmtMoney(room.monthly_rent)}/mo)` });
+      }
+    });
+  });
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Undo Vacate — ${escapeHtml(r.name)}</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <p style="font-size:13px;color:var(--ink-soft);margin-bottom:14px;">
+      Brings ${escapeHtml(r.name)} back as an active resident. This clears their vacate notice, vacate date and refund record, and assigns them the bed you pick below.
+    </p>
+    ${vacantBeds.length === 0 ? `
+      <div class="card" style="border-color:var(--red,#B23B3B);"><div class="card-title" style="color:var(--red,#B23B3B);">No vacant beds available</div><p style="font-size:12px;color:var(--ink-soft);">Every bed is currently occupied or reserved. Free up a bed first, or add a new one.</p></div>
+    ` : `
+      <label>Assign Bed</label>
+      <select id="uv-bed">
+        ${vacantBeds.map(b => `<option value="${b.id}">${b.label}</option>`).join('')}
+      </select>
+      <label>Rejoin Date</label>
+      <input id="uv-join-date" type="date" value="${today}">
+      <p style="font-size:11px;color:var(--ink-soft);margin:4px 0 14px;">Rent will be tracked from this date onward — the months they were marked vacated won't be billed.</p>
+      <button class="btn btn-primary" style="width:100%;" onclick="submitUndoVacate(${residentId})">Confirm — Bring Back</button>
+    `}
+  `);
+}
+
+async function submitUndoVacate(residentId) {
+  const bedSelect = document.getElementById('uv-bed');
+  const dateInput = document.getElementById('uv-join-date');
+  if (!bedSelect || !dateInput) return;
+  const bed_id = parseInt(bedSelect.value, 10);
+  const join_date = dateInput.value;
+  if (!bed_id || !join_date) {
+    showToast('Please pick a bed and rejoin date.', 'error');
+    return;
+  }
+  try {
+    await api(`/residents/${residentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        status: 'active',
+        bed_id,
+        join_date,
+        actual_vacate_date: null,
+        notice_date: null,
+        planned_vacate_date: null,
+        refund_paid: null,
+        refund_paid_date: null,
+        deductions: null,
+        deduction_reason: null,
+        room_inspection_done: false,
+        room_inspection_notes: null,
+      }),
+    });
+    closeModal();
+    showToast(`Welcome back! Resident is active again.`, 'success');
+    state.rooms = await api('/rooms'); // refresh occupancy cache
+    loadResidents();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
 // ---- Add resident ----
 async function openAddResidentModal(preselectedBedId) {
   if (state.rooms.length === 0) {
@@ -930,6 +1017,8 @@ async function openAddResidentModal(preselectedBedId) {
     <input id="res-advance" type="number" placeholder="0">
     <label>Custom Rent for this bed <span style="font-weight:400;color:var(--ink-soft);">(leave blank to use room's default rent)</span></label>
     <input id="res-custom-rent" type="number" placeholder="Leave blank for room default">
+    <label>Custom Advance for this bed <span style="font-weight:400;color:var(--ink-soft);">(leave blank to use room's default advance)</span></label>
+    <input id="res-custom-advance" type="number" placeholder="Leave blank for room default">
     <label>Occupation</label>
     <select id="res-occupation">
       <option value="Student">Student</option>
@@ -1000,6 +1089,8 @@ async function submitAddResident() {
   const agreement_signed = document.getElementById('res-agreement').checked;
   const customRentRaw = document.getElementById('res-custom-rent').value;
   const custom_rent = customRentRaw ? parseInt(customRentRaw, 10) : null;
+  const customAdvanceRaw = document.getElementById('res-custom-advance').value;
+  const custom_advance = customAdvanceRaw ? parseInt(customAdvanceRaw, 10) : null;
 
   if (!name || !phone || !bed_id || !join_date) {
     showToast('Name, phone, bed and join date are required.', 'error');
@@ -1012,7 +1103,7 @@ async function submitAddResident() {
       body: JSON.stringify({
         name, phone, aadhaar_number, pan_number, bed_id, join_date, advance_paid, occupation,
         company_or_college, emergency_contact_name, emergency_contact_phone,
-        police_verification_status, agreement_signed, custom_rent,
+        police_verification_status, agreement_signed, custom_rent, custom_advance,
         aadhaar_photo_url: pendingResidentDocs.aadhaar_photo_url,
         aadhaar_back_photo_url: pendingResidentDocs.aadhaar_back_photo_url,
         pan_photo_url: pendingResidentDocs.pan_photo_url,
