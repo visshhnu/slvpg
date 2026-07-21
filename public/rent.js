@@ -263,12 +263,12 @@ function renderRent() {
       ? `<div class="card"><div class="empty-state"><div class="empty-state-title">No residents to bill this month</div></div></div>`
       : filteredRows.length === 0
         ? `<div class="card"><div class="empty-state"><div class="empty-state-title">Nothing matches this filter</div></div></div>`
-        : rentView === 'room' ? renderRoomView(filteredRows) : filteredRows.map(row => renderRentCard(row)).join('')
+        : rentView === 'room' ? renderRoomView(filteredRows) : filteredRows.map(row => renderRentCard(row, summary.month)).join('')
     }
   `;
 }
 
-function renderRentCard(row) {
+function renderRentCard(row, month) {
   const notDue = row.status === 'not_due';
   const balance = notDue ? 0 : row.amount_due - row.amount_paid;
   const hasPaidSomething = !notDue && row.amount_paid > 0;
@@ -276,6 +276,10 @@ function renderRentCard(row) {
   const adv = row.advance; // server-computed by functions/_ledger.js -- same figure Room view and Residents tab use
   const advExpected = adv.expected || 0;
   const totalOutstanding = Math.max(0, balance) + Math.max(0, adv.balance);
+  // A resident's first billed month is pro-rated (see functions/_ledger.js) --
+  // flagging it here so a lower-than-usual amount doesn't read as a mistake.
+  const isProratedMonth = !notDue && month && row.join_date && row.join_date.slice(0, 7) === month
+    && parseInt(row.join_date.slice(8, 10), 10) > 1;
 
   return `
     <div class="card" style="margin-bottom:10px;">
@@ -307,7 +311,7 @@ function renderRentCard(row) {
       ` : `
         <div style="padding:8px 0;border-top:1px solid var(--border);">
           <div style="display:flex;justify-content:space-between;align-items:center;font-size:12.5px;font-weight:600;margin-bottom:4px;">
-            <span style="color:var(--text-muted);">RENT</span>
+            <span style="color:var(--text-muted);">RENT${isProratedMonth ? ` <span style="font-weight:400;color:var(--text-muted);">(pro-rated, joined mid-month)</span>` : ''}</span>
             <span>${isPaid
               ? `<span style="color:var(--text-success);">${fmtMoney(row.amount_due)} paid ✓</span>`
               : `<span style="color:var(--text-danger);">${fmtMoney(balance)} remaining</span> <span style="color:var(--text-muted);font-weight:400;">of ${fmtMoney(row.amount_due)}</span>`

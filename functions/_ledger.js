@@ -38,11 +38,40 @@ const ACTIVE_STATUS_SQL = "('posted', 'migrated')";
 //    called for a future month (e.g. Rent tab paged forward) doesn't skip
 //    a resident who will have joined by then just because today hasn't
 //    caught up to that month yet.
+// A resident's very first billed month is charged only for the days they
+// actually stayed (join date through month-end), not the full month --
+// joining on the 20th shouldn't cost the same as joining on the 1st. Every
+// month after that is unaffected: full rent, normal 5th-of-month due date.
+//
+// The due date for that first partial month also can't stay hardcoded to
+// the 5th -- for anyone joining after the 5th, that date is already in the
+// past, so their very first rent entry would read "overdue" before they'd
+// even moved in. It falls back to the last day of that month instead, which
+// also happens to line up with when most residents actually get paid.
+function computeMonthRentDetails(fullAmount, joinDate, month) {
+  const standardDueDate = `${month}-05`;
+  const isJoinMonth = joinDate && joinDate.slice(0, 7) === month;
+  if (!isJoinMonth) {
+    return { amount: fullAmount, dueDate: standardDueDate, isJoinMonth };
+  }
+
+  const [y, m] = month.split('-').map(Number);
+  const totalDays = new Date(y, m, 0).getDate(); // day 0 of next month = last day of this one
+  const joinDay = parseInt(joinDate.slice(8, 10), 10);
+  const daysStayed = totalDays - joinDay + 1;
+  const amount = Math.round(fullAmount * daysStayed / totalDays);
+  const dueDate = joinDate > standardDueDate
+    ? `${month}-${String(totalDays).padStart(2, '0')}`
+    : standardDueDate;
+
+  return { amount, dueDate, isJoinMonth };
+}
+
 export async function ensureLedgerRows(env, pgId, month) {
   const today = new Date().toISOString().slice(0, 10);
   const isRealCurrentMonth = month === today.slice(0, 7);
   const { results: dueResidents } = await env.DB.prepare(`
-    SELECT res.id, res.custom_rent, r.monthly_rent
+    SELECT res.id, res.custom_rent, res.join_date, r.monthly_rent
     FROM residents res
     JOIN beds b ON b.id = res.bed_id
     JOIN rooms r ON r.id = b.room_id
@@ -64,12 +93,12 @@ export async function ensureLedgerRows(env, pgId, month) {
   ).bind(pgId, month).all();
   const existingByResident = new Map(existingRows.map(r => [r.resident_id, r]));
 
-  const dueDate = `${month}-05`;
   const inserts = [];
 
   for (const res of dueResidents) {
     // custom_rent (per-bed override) wins over the room's shared monthly_rent
-    const expectedAmount = res.custom_rent != null ? res.custom_rent : res.monthly_rent;
+    const fullAmount = res.custom_rent != null ? res.custom_rent : res.monthly_rent;
+    const { amount: expectedAmount, dueDate, isJoinMonth } = computeMonthRentDetails(fullAmount, res.join_date, month);
     const existing = existingByResident.get(res.id);
 
     if (!existing) {
@@ -77,7 +106,7 @@ export async function ensureLedgerRows(env, pgId, month) {
         `INSERT INTO rent_ledger (pg_id, resident_id, month, due_date, amount_due, status)
          VALUES (?, ?, ?, ?, ?, 'pending')`
       ).bind(pgId, res.id, month, dueDate, expectedAmount));
-    } else if (isRealCurrentMonth && existing.amount_due !== expectedAmount) {
+    } else if (isRealCurrentMonth && !isJoinMonth && existing.amount_due !== expectedAmount) {
       // The room's monthly_rent or the resident's custom_rent was edited
       // AFTER this month's ledger row was already created -- that row was a
       // one-time snapshot and never re-synced on its own. Only self-heal the
@@ -85,6 +114,16 @@ export async function ensureLedgerRows(env, pgId, month) {
       // viewing on the Rent tab) so a closed month's history never shifts.
       // Rare in practice (only right after a rent edit), so this stays a
       // targeted per-row call rather than joining the batch below.
+      //
+      // Deliberately skipped for the resident's join month: pro-ration is a
+      // new formula (see computeMonthRentDetails above), and this passive
+      // self-heal runs on every page load -- without this guard, anyone who
+      // joined mid-month BEFORE pro-ration shipped, with an already-created
+      // full-price row, would have that row silently shrunk the next time
+      // anyone opened the Rent tab. Pro-ration only applies going forward to
+      // rows created fresh (the `if (!existing)` branch above); an already
+      // existing join-month row only changes if someone explicitly edits
+      // that resident's rent (syncCurrentMonthRent, triggered by that edit).
       await recomputeRentLedgerRow(env, existing.id, expectedAmount);
     }
   }
@@ -108,7 +147,7 @@ export async function syncCurrentMonthRent(env, residentId) {
   const month = today.slice(0, 7);
 
   const res = await env.DB.prepare(`
-    SELECT res.custom_rent, r.monthly_rent
+    SELECT res.custom_rent, res.join_date, r.monthly_rent
     FROM residents res
     JOIN beds b ON b.id = res.bed_id
     JOIN rooms r ON r.id = b.room_id
@@ -116,7 +155,8 @@ export async function syncCurrentMonthRent(env, residentId) {
   `).bind(residentId).first();
   if (!res) return;
 
-  const expectedAmount = res.custom_rent != null ? res.custom_rent : res.monthly_rent;
+  const fullAmount = res.custom_rent != null ? res.custom_rent : res.monthly_rent;
+  const { amount: expectedAmount } = computeMonthRentDetails(fullAmount, res.join_date, month);
   const existing = await env.DB.prepare(
     'SELECT id, amount_due FROM rent_ledger WHERE resident_id = ? AND month = ?'
   ).bind(residentId, month).first();
