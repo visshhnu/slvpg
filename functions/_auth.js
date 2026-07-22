@@ -67,9 +67,20 @@ export function unauthorized() {
 
 // Resolves which pg_id the current request should operate on.
 // Admins (session.pgId === null) can pass ?pg_id=N to pick a PG, or get null (meaning "all PGs", only valid for read-summary endpoints).
-// Staff are locked to their own pg_id no matter what they pass in the URL.
+// Staff assigned to exactly one PG are locked to it no matter what they pass in the URL.
+// Staff assigned to MULTIPLE PGs (session.pgIds.length > 1) may pass ?pg_id=N
+// to pick which one they're currently working in, same as an admin does --
+// but ONLY if N is actually one of their assigned PGs; anything else silently
+// falls back to their first/primary one rather than granting access to a PG
+// they were never assigned to.
 export function resolvePgId(session, url) {
-  if (session.pgId) return session.pgId; // staff: always their own PG
   const requested = url.searchParams.get('pg_id');
-  return requested ? parseInt(requested, 10) : null; // admin: whichever they ask for, or null for "all"
+  const requestedNum = requested ? parseInt(requested, 10) : null;
+
+  if (Array.isArray(session.pgIds) && session.pgIds.length > 1) {
+    if (requestedNum && session.pgIds.includes(requestedNum)) return requestedNum;
+    return session.pgIds[0];
+  }
+  if (session.pgId) return session.pgId; // single-PG staff: always their own PG
+  return requestedNum; // admin: whichever they ask for, or null for "all"
 }

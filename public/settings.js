@@ -123,6 +123,7 @@ async function loadSettings() {
 }
 
 function renderSettings(staffList, fixedCharges, corrections, duesList) {
+  state.staffList = staffList; // so openEditStaffModal can look a row up by id instead of threading every field through onclick
   const el = document.getElementById('screen-settings');
   el.innerHTML = `
     <div class="card">
@@ -188,11 +189,11 @@ function renderSettings(staffList, fixedCharges, corrections, duesList) {
           <div class="list-row">
             <div class="list-row-main">
               <div class="list-row-title">${escapeHtml(s.name)}</div>
-              <div class="list-row-sub">@${escapeHtml(s.username)} · ${s.pg_name ? escapeHtml(s.pg_name) : 'no PG assigned'}</div>
+              <div class="list-row-sub">@${escapeHtml(s.username)} · ${s.pg_names && s.pg_names.length ? escapeHtml(s.pg_names.join(', ')) : 'no PG assigned'}</div>
             </div>
             <div style="display:flex;gap:6px;align-items:center;">
               <span class="badge ${s.role === 'admin' ? 'badge-gold' : s.role === 'pg_manager' ? 'badge-amber' : 'badge-gray'}">${s.role}</span>
-              ${s.role !== 'admin' ? `<button class="btn btn-sm btn-outline" style="padding:4px 8px;font-size:11px;" onclick="openEditStaffModal(${s.id}, '${escapeHtml(s.name)}', '${s.role}', ${s.pg_id})">Edit</button>` : ''}
+              ${s.role !== 'admin' ? `<button class="btn btn-sm btn-outline" style="padding:4px 8px;font-size:11px;" onclick="openEditStaffModal(${s.id})">Edit</button>` : ''}
             </div>
           </div>
         `).join('')
@@ -202,21 +203,30 @@ function renderSettings(staffList, fixedCharges, corrections, duesList) {
   `;
 }
 
-function openEditStaffModal(staffId, name, currentRole, currentPgId) {
+function openEditStaffModal(staffId) {
+  const s = (state.staffList || []).find(x => x.id === staffId);
+  if (!s) return;
+  const assignedIds = s.pg_ids && s.pg_ids.length ? s.pg_ids : (s.pg_id ? [s.pg_id] : []);
+
   openModal(`
     <div class="modal-header">
-      <div class="modal-title">Edit Staff — ${escapeHtml(name)}</div>
+      <div class="modal-title">Edit Staff — ${escapeHtml(s.name)}</div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
     <label>Role</label>
     <select id="edit-staff-role">
-      <option value="staff" ${currentRole === 'staff' ? 'selected' : ''}>Staff — view/record only</option>
-      <option value="pg_manager" ${currentRole === 'pg_manager' ? 'selected' : ''}>PG Manager — can also fix flagged corrections</option>
+      <option value="staff" ${s.role === 'staff' ? 'selected' : ''}>Staff — view/record only</option>
+      <option value="pg_manager" ${s.role === 'pg_manager' ? 'selected' : ''}>PG Manager — can also fix flagged corrections</option>
     </select>
-    <label>Assign to PG</label>
-    <select id="edit-staff-pg">
-      ${state.pgList.map(pg => `<option value="${pg.id}" ${pg.id === currentPgId ? 'selected' : ''}>${escapeHtml(pg.name)}</option>`).join('')}
-    </select>
+    <label>Assign to PG(s) <span style="font-weight:400;color:var(--ink-soft);">(check every PG this login should be able to switch into)</span></label>
+    <div class="card" style="margin:6px 0 12px;">
+      ${state.pgList.map(pg => `
+        <label style="display:flex;align-items:center;gap:8px;margin:6px 0;">
+          <input type="checkbox" class="edit-staff-pg-cb" value="${pg.id}" style="width:auto;margin:0;" ${assignedIds.includes(pg.id) ? 'checked' : ''}>
+          ${escapeHtml(pg.name)}
+        </label>
+      `).join('')}
+    </div>
     <label>New password <span style="font-weight:400;color:var(--ink-soft);">(leave blank to keep existing)</span></label>
     <input id="edit-staff-password" type="password" placeholder="Leave blank to keep current password">
     <button class="btn btn-primary" style="margin-top:12px;" onclick="submitEditStaff(${staffId})">Save Changes</button>
@@ -225,10 +235,15 @@ function openEditStaffModal(staffId, name, currentRole, currentPgId) {
 
 async function submitEditStaff(staffId) {
   const role = document.getElementById('edit-staff-role').value;
-  const pg_id = parseInt(document.getElementById('edit-staff-pg').value, 10);
+  const pg_ids = Array.from(document.querySelectorAll('.edit-staff-pg-cb:checked')).map(cb => parseInt(cb.value, 10));
   const password = document.getElementById('edit-staff-password').value;
 
-  const body = { role, pg_id };
+  if (pg_ids.length === 0) {
+    showToast('Check at least one PG to assign.', 'error');
+    return;
+  }
+
+  const body = { role, pg_ids };
   if (password) {
     if (password.length < 6) { showToast('Password must be at least 6 characters.', 'error'); return; }
     body.password = password;
@@ -255,14 +270,19 @@ function openAddStaffModal() {
     <label>Phone</label>
     <input id="staff-phone" placeholder="Optional">
     <label>Role</label>
-    <select id="staff-role" onchange="toggleStaffPgSelect()">
+    <select id="staff-role">
       <option value="staff">Staff — can view/record, cannot fix corrections</option>
       <option value="pg_manager">PG Manager — can also fix flagged corrections for their PG</option>
     </select>
-    <label>Assign to PG</label>
-    <select id="staff-pg">
-      ${state.pgList.map(pg => `<option value="${pg.id}">${escapeHtml(pg.name)}</option>`).join('')}
-    </select>
+    <label>Assign to PG(s) <span style="font-weight:400;color:var(--ink-soft);">(check every PG this login should be able to switch into)</span></label>
+    <div class="card" style="margin:6px 0 12px;">
+      ${state.pgList.map((pg, i) => `
+        <label style="display:flex;align-items:center;gap:8px;margin:6px 0;">
+          <input type="checkbox" class="staff-pg-cb" value="${pg.id}" style="width:auto;margin:0;" ${i === 0 ? 'checked' : ''}>
+          ${escapeHtml(pg.name)}
+        </label>
+      `).join('')}
+    </div>
     <label>Username</label>
     <input id="staff-username" placeholder="e.g. warden1">
     <label>Password</label>
@@ -271,20 +291,16 @@ function openAddStaffModal() {
   `);
 }
 
-function toggleStaffPgSelect() {
-  // reserved for future use if admin role needs pg hidden — no-op for now
-}
-
 async function submitAddStaff() {
   const name = document.getElementById('staff-name').value.trim();
   const phone = document.getElementById('staff-phone').value.trim();
-  const pg_id = parseInt(document.getElementById('staff-pg').value, 10);
+  const pg_ids = Array.from(document.querySelectorAll('.staff-pg-cb:checked')).map(cb => parseInt(cb.value, 10));
   const username = document.getElementById('staff-username').value.trim();
   const password = document.getElementById('staff-password').value;
   const role = document.getElementById('staff-role').value;
 
-  if (!name || !username || !password || !pg_id) {
-    showToast('Name, username, password and PG are all required.', 'error');
+  if (!name || !username || !password || pg_ids.length === 0) {
+    showToast('Name, username, password and at least one PG are all required.', 'error');
     return;
   }
   if (password.length < 6) {
@@ -295,7 +311,7 @@ async function submitAddStaff() {
   try {
     await api('/staff', {
       method: 'POST',
-      body: JSON.stringify({ name, phone, username, password, pg_id, role }),
+      body: JSON.stringify({ name, phone, username, password, pg_ids, role }),
     });
     closeModal();
     showToast('Staff login created.', 'success');

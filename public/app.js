@@ -172,17 +172,34 @@ async function enterApp() {
 
   // Load the PG list, pick which one to view
   state.pgList = await api('/pgs');
-  if (state.staff.role === 'staff') {
+  if (state.staff.role !== 'admin' && !canSwitchPg()) {
+    // Locked to exactly one PG (the normal case): always that one, never
+    // whatever happened to be first in pgList. This used to only apply to
+    // role === 'staff' -- a pg_manager assigned to a single PG fell through
+    // to the "pick pgList[0]" branch below instead, which is wrong the
+    // moment pgList[0] isn't actually their PG (the backend would still
+    // enforce the correct PG on every request regardless, but the header's
+    // PG name label could show the wrong property).
     state.currentPgId = state.staff.pgId;
   } else if (state.pgList.length > 0) {
-    state.currentPgId = state.currentPgId || state.pgList[0].id;
+    // Admin, or a multi-PG staff/pg_manager: default to their first
+    // assigned PG (or whichever was already selected, e.g. after a reload).
+    state.currentPgId = state.currentPgId || (state.staff.pgIds ? state.staff.pgIds[0] : state.pgList[0].id);
   }
   updatePgLabel();
 
-  // Hide the PG switcher entirely for staff (locked to one PG, nothing to switch)
-  document.getElementById('pg-switcher').style.cursor = state.staff.role === 'admin' ? 'pointer' : 'default';
+  // Hide the PG switcher entirely when there's nothing to switch between.
+  document.getElementById('pg-switcher').style.cursor = canSwitchPg() ? 'pointer' : 'default';
 
   switchTab('dashboard');
+}
+
+// True for admin (sees every PG) or a staff/pg_manager account explicitly
+// assigned to more than one PG. Shared by enterApp() (switcher cursor) and
+// pgs.js (openPgSwitcher's guard) so the two can't disagree about who gets
+// a switcher at all.
+function canSwitchPg() {
+  return state.staff.role === 'admin' || (Array.isArray(state.staff.pgIds) && state.staff.pgIds.length > 1);
 }
 
 function updatePgLabel() {
@@ -241,7 +258,7 @@ function switchTab(tab) {
   fab.onclick = () => {
     if (tab === 'residents') openAddResidentModal();
     else if (tab === 'rooms') openAddRoomModal();
-    else if (tab === 'expenses') openAddExpenseModal();
+    else if (tab === 'expenses') { if (expenseView === 'income') openAddIncomeModal(); else openAddExpenseModal(); }
     else if (tab === 'settings') openAddStaffModal();
     else fab.classList.add('hidden');
   };

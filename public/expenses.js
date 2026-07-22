@@ -23,6 +23,11 @@ const EXPENSE_CATEGORIES = [
 const CATEGORY_LABEL_MAP = Object.fromEntries(EXPENSE_CATEGORIES.map(c => [c.value, c.label]));
 
 let expenseMonthFilter = new Date().toISOString().slice(0, 7);
+// Which sub-view of this screen is showing -- 'expenses' (money out) or
+// 'income' (money in, for PGs collected in bulk rather than per-resident).
+// Both are fetched together on every load so switching between them is
+// instant, no extra round-trip.
+let expenseView = 'expenses';
 
 async function loadExpenses() {
   const el = document.getElementById('screen-expenses');
@@ -32,7 +37,10 @@ async function loadExpenses() {
     return;
   }
   try {
-    state.expensesData = await api(`/expenses?month=${expenseMonthFilter}`);
+    [state.expensesData, state.incomeData] = await Promise.all([
+      api(`/expenses?month=${expenseMonthFilter}`),
+      api(`/income?month=${expenseMonthFilter}`),
+    ]);
     renderExpenses();
   } catch (e) {
     el.innerHTML = `<div class="card"><div class="empty-state-title">Couldn't load expenses</div><div>${e.message}</div></div>`;
@@ -46,10 +54,13 @@ function changeExpenseMonth(delta) {
   loadExpenses();
 }
 
+function setExpenseView(view) {
+  expenseView = view;
+  renderExpenses();
+}
+
 function renderExpenses() {
   const el = document.getElementById('screen-expenses');
-  const { rows, by_category, total } = state.expensesData;
-  const categoryEntries = Object.entries(by_category || {}).sort((a, b) => b[1] - a[1]);
 
   el.innerHTML = `
     <div class="month-nav">
@@ -57,7 +68,19 @@ function renderExpenses() {
       <div class="month-nav-label">${monthLabel(expenseMonthFilter)}</div>
       <button onclick="changeExpenseMonth(1)">›</button>
     </div>
+    <div class="segmented">
+      <button class="${expenseView === 'expenses' ? 'active' : ''}" onclick="setExpenseView('expenses')">Expenses</button>
+      <button class="${expenseView === 'income' ? 'active' : ''}" onclick="setExpenseView('income')">Income</button>
+    </div>
+    ${expenseView === 'income' ? renderIncomeView() : renderExpensesView()}
+  `;
+}
 
+function renderExpensesView() {
+  const { rows, by_category, total } = state.expensesData;
+  const categoryEntries = Object.entries(by_category || {}).sort((a, b) => b[1] - a[1]);
+
+  return `
     <div class="card">
       <div class="stat-box" style="width:100%;">
         <div class="stat-num">${fmtMoney(total)}</div>
@@ -91,6 +114,37 @@ function renderExpenses() {
             <div class="list-row-sub">${e.description ? escapeHtml(e.description) + ' · ' : ''}${fmtDate(e.expense_date)} · by ${escapeHtml(e.paid_by || '—')}</div>
           </div>
           <div class="list-row-amount">${fmtMoney(e.amount)}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderIncomeView() {
+  const { rows, total } = state.incomeData;
+
+  return `
+    <div class="card">
+      <div class="stat-box" style="width:100%;">
+        <div class="stat-num green">${fmtMoney(total)}</div>
+        <div class="stat-label">${monthLabel(expenseMonthFilter)} total income</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">All Entries</div>
+      ${rows.length === 0 ? `
+        <div class="empty-state">
+          <div class="empty-state-title">No income logged in ${monthLabel(expenseMonthFilter)}</div>
+          <div>Tap + to record a bulk rent collection or other lump-sum income for this PG.</div>
+        </div>
+      ` : rows.map(i => `
+        <div class="list-row" onclick="openEditIncomeModal(${i.id})" style="cursor:pointer;">
+          <div class="list-row-main">
+            <div class="list-row-title">${escapeHtml(i.source || 'Income')}</div>
+            <div class="list-row-sub">${i.description ? escapeHtml(i.description) + ' · ' : ''}${fmtDate(i.income_date)} · by ${escapeHtml(i.recorded_by || '—')}</div>
+          </div>
+          <div class="list-row-amount" style="color:var(--text-success,#2E7D32);">+${fmtMoney(i.amount)}</div>
         </div>
       `).join('')}
     </div>
@@ -208,6 +262,121 @@ async function submitDeleteExpense(expenseId) {
     await api(`/expenses/${expenseId}`, { method: 'DELETE' });
     closeModal();
     showToast('Expense deleted.', 'success');
+    loadExpenses();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+// ===== Income (bulk collections for PGs not tracked per-resident) =====
+
+function openAddIncomeModal() {
+  const today = new Date().toISOString().slice(0, 10);
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Add Income</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <label>Amount</label>
+    <input id="inc-amount" type="number" placeholder="0">
+    <label>Date</label>
+    <input id="inc-date" type="date" value="${today}">
+    <label>Source (optional)</label>
+    <input id="inc-source" placeholder="e.g. Bulk rent collection, Sub-lease payment">
+    <label>Description (optional)</label>
+    <input id="inc-desc" placeholder="Any extra detail">
+    <button class="btn btn-primary" onclick="submitAddIncome()">Save Income</button>
+  `);
+}
+
+async function submitAddIncome() {
+  const amount = parseInt(document.getElementById('inc-amount').value, 10);
+  const income_date = document.getElementById('inc-date').value;
+  const source = document.getElementById('inc-source').value.trim();
+  const description = document.getElementById('inc-desc').value.trim();
+
+  if (!amount || amount <= 0) {
+    showToast('Enter a valid amount.', 'error');
+    return;
+  }
+
+  try {
+    await api('/income', {
+      method: 'POST',
+      body: JSON.stringify({ amount, income_date, source, description }),
+    });
+    closeModal();
+    showToast('Income saved.', 'success');
+    expenseMonthFilter = income_date.slice(0, 7);
+    expenseView = 'income';
+    loadExpenses();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+function openEditIncomeModal(incomeId) {
+  const i = state.incomeData.rows.find(x => x.id === incomeId);
+  if (!i) return;
+
+  if (state.staff.role !== 'admin') {
+    openModal(`
+      <div class="modal-header">
+        <div class="modal-title">${escapeHtml(i.source || 'Income')}</div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="card" style="margin-bottom:14px;">
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Amount</div></div><div>${fmtMoney(i.amount)}</div></div>
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Date</div></div><div>${fmtDate(i.income_date)}</div></div>
+        ${i.description ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Note</div></div><div>${escapeHtml(i.description)}</div></div>` : ''}
+      </div>
+      <p style="font-size:12.5px;color:var(--ink-soft);">Only an admin can edit an income entry — let them know if something's wrong here.</p>
+    `);
+    return;
+  }
+
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Edit Income</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <label>Amount</label>
+    <input id="edit-inc-amount" type="number" value="${i.amount}">
+    <label>Date</label>
+    <input id="edit-inc-date" type="date" value="${i.income_date}">
+    <label>Source</label>
+    <input id="edit-inc-source" value="${escapeHtml(i.source || '')}">
+    <label>Description</label>
+    <input id="edit-inc-desc" value="${escapeHtml(i.description || '')}">
+    <button class="btn btn-primary" style="margin-bottom:10px;" onclick="submitEditIncome(${incomeId})">Save Changes</button>
+    <button class="btn btn-danger" onclick="submitDeleteIncome(${incomeId})">Delete Entry</button>
+  `);
+}
+
+async function submitEditIncome(incomeId) {
+  const amount = parseInt(document.getElementById('edit-inc-amount').value, 10);
+  const income_date = document.getElementById('edit-inc-date').value;
+  const source = document.getElementById('edit-inc-source').value.trim();
+  const description = document.getElementById('edit-inc-desc').value.trim();
+
+  try {
+    await api(`/income/${incomeId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ amount, income_date, source, description }),
+    });
+    closeModal();
+    showToast('Income updated.', 'success');
+    loadExpenses();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function submitDeleteIncome(incomeId) {
+  try {
+    await api(`/income/${incomeId}`, { method: 'DELETE' });
+    closeModal();
+    showToast('Income entry deleted.', 'success');
     loadExpenses();
   } catch (e) {
     showToast(e.message, 'error');

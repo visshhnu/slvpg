@@ -1,7 +1,9 @@
 // ===== PG switcher (admin) =====
 
 function openPgSwitcher() {
-  if (state.staff.role !== 'admin') return; // staff has nothing to switch
+  // Nothing to switch for a single-PG staff account. canSwitchPg() (app.js)
+  // is true for admin, or a staff/pg_manager assigned to more than one PG.
+  if (!canSwitchPg()) return;
 
   openModal(`
     <div class="modal-header">
@@ -19,7 +21,7 @@ function openPgSwitcher() {
         </div>
       `).join('')}
     </div>
-    <button class="btn btn-outline" onclick="openAddPgModal()">+ Add Another PG</button>
+    ${state.staff.role === 'admin' ? `<button class="btn btn-outline" onclick="openAddPgModal()">+ Add Another PG</button>` : ''}
   `);
 }
 

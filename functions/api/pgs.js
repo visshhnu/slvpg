@@ -10,7 +10,15 @@ export async function onRequestGet({ request, env }) {
     return jsonResponse(results);
   }
 
-  // Staff only sees their own PG
+  // Staff only sees the PG(s) they're actually assigned to -- all of them,
+  // for a multi-PG staff member (session.pgIds), or just their one otherwise.
+  if (Array.isArray(session.pgIds) && session.pgIds.length > 1) {
+    const placeholders = session.pgIds.map(() => '?').join(',');
+    const { results } = await env.DB.prepare(
+      `SELECT * FROM pgs WHERE id IN (${placeholders}) ORDER BY name`
+    ).bind(...session.pgIds).all();
+    return jsonResponse(results);
+  }
   const pg = await env.DB.prepare('SELECT * FROM pgs WHERE id = ?').bind(session.pgId).first();
   return jsonResponse(pg ? [pg] : []);
 }

@@ -17,7 +17,11 @@ export async function onRequestPatch({ request, env, params }) {
     return jsonResponse({ error: 'Admin account cannot be edited here.' }, 403);
   }
 
-  const { role, pg_id, password } = await request.json();
+  const body = await request.json();
+  const { role, password } = body;
+  // pg_ids (array) is the current form; pg_id (single) still accepted.
+  const pgIdList = Array.isArray(body.pg_ids) ? body.pg_ids.filter(Boolean)
+    : (body.pg_id !== undefined && body.pg_id !== null ? [body.pg_id] : null);
 
   const updates = [];
   const binds = [];
@@ -29,9 +33,12 @@ export async function onRequestPatch({ request, env, params }) {
     binds.push(safeRole);
   }
 
-  if (pg_id !== undefined) {
+  if (pgIdList !== null) {
+    if (pgIdList.length === 0) {
+      return jsonResponse({ error: 'At least one PG assignment is required.' }, 400);
+    }
     updates.push('pg_id = ?');
-    binds.push(pg_id);
+    binds.push(pgIdList[0]);
   }
 
   if (password) {
@@ -47,6 +54,25 @@ export async function onRequestPatch({ request, env, params }) {
 
   binds.push(params.id);
   await env.DB.prepare(`UPDATE staff SET ${updates.join(', ')} WHERE id = ?`).bind(...binds).run();
+
+  // Replace the full staff_pgs set to match pgIdList exactly (delete then
+  // re-insert, simpler and safer than diffing). Wrapped defensively since
+  // staff_pgs may not exist yet on this DB -- pg_id (already updated above
+  // to the primary PG) still works fine on its own either way.
+  if (pgIdList !== null) {
+    try {
+      await env.DB.prepare('DELETE FROM staff_pgs WHERE staff_id = ?').bind(params.id).run();
+      if (pgIdList.length > 1) {
+        await env.DB.batch(
+          pgIdList.map(pgId => env.DB.prepare(
+            'INSERT OR IGNORE INTO staff_pgs (staff_id, pg_id) VALUES (?, ?)'
+          ).bind(params.id, pgId))
+        );
+      }
+    } catch {
+      // staff_pgs not migrated yet -- pg_id (primary) is already saved above
+    }
+  }
 
   return jsonResponse({ success: true });
 }
