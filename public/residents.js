@@ -409,6 +409,12 @@ async function openEditResidentModal(residentId) {
     <label>Custom advance for this bed <span style="font-weight:400;color:var(--ink-soft);">(leave blank to use room's default advance)</span></label>
     <input id="er-custom-advance" type="number" value="${r.custom_advance != null ? r.custom_advance : ''}" placeholder="Room default: ${fmtMoney(r.advance_deposit || 0)}">
 
+    <label>First month rent due <span style="font-weight:400;color:var(--ink-soft);">(only matters while still in their join month)</span></label>
+    <select id="er-due-option">
+      <option value="cycle" ${r.first_month_due_option !== 'join_date' ? 'selected' : ''}>Regular cycle — 5th, or month-end if that's already passed</option>
+      <option value="join_date" ${r.first_month_due_option === 'join_date' ? 'selected' : ''}>On their join date</option>
+    </select>
+
     <div class="card" style="margin:14px 0;">
       <div class="card-title">Identity Documents</div>
       <p style="font-size:12px;color:var(--ink-soft);margin:-4px 0 10px;">Upload a new photo only if you need to replace the existing one.</p>
@@ -461,6 +467,7 @@ async function submitEditResident(residentId) {
     agreement_signed: document.getElementById('er-agreement').value === '1',
     custom_rent: customRentRaw ? parseInt(customRentRaw, 10) : null,
     custom_advance: customAdvanceRaw ? parseInt(customAdvanceRaw, 10) : null,
+    first_month_due_option: document.getElementById('er-due-option').value,
     notes: document.getElementById('er-notes').value.trim() || null,
     ...(pendingEditResidentDocs || {}),
   };
@@ -1038,6 +1045,11 @@ async function openAddResidentModal(preselectedBedId) {
     <input id="res-custom-rent" type="number" placeholder="Leave blank for room default">
     <label>Custom Advance for this bed <span style="font-weight:400;color:var(--ink-soft);">(leave blank to use room's default advance)</span></label>
     <input id="res-custom-advance" type="number" placeholder="Leave blank for room default">
+    <label>First Month Rent Due <span style="font-weight:400;color:var(--ink-soft);">(only applies if joining mid-month)</span></label>
+    <select id="res-due-option">
+      <option value="cycle">Regular cycle — 5th, or month-end if that's already passed</option>
+      <option value="join_date">On their join date</option>
+    </select>
     <label>Occupation</label>
     <select id="res-occupation">
       <option value="Student">Student</option>
@@ -1110,6 +1122,7 @@ async function submitAddResident() {
   const custom_rent = customRentRaw ? parseInt(customRentRaw, 10) : null;
   const customAdvanceRaw = document.getElementById('res-custom-advance').value;
   const custom_advance = customAdvanceRaw ? parseInt(customAdvanceRaw, 10) : null;
+  const first_month_due_option = document.getElementById('res-due-option').value;
 
   if (!name || !phone || !bed_id || !join_date) {
     showToast('Name, phone, bed and join date are required.', 'error');
@@ -1122,7 +1135,7 @@ async function submitAddResident() {
       body: JSON.stringify({
         name, phone, aadhaar_number, pan_number, bed_id, join_date, advance_paid, occupation,
         company_or_college, emergency_contact_name, emergency_contact_phone,
-        police_verification_status, agreement_signed, custom_rent, custom_advance,
+        police_verification_status, agreement_signed, custom_rent, custom_advance, first_month_due_option,
         aadhaar_photo_url: pendingResidentDocs.aadhaar_photo_url,
         aadhaar_back_photo_url: pendingResidentDocs.aadhaar_back_photo_url,
         pan_photo_url: pendingResidentDocs.pan_photo_url,

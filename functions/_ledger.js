@@ -21,6 +21,23 @@ export const PAYMENT_STATUSES = ['posted', 'deleted', 'voided', 'refunded', 'mig
 export const ACTIVE_STATUSES = ['posted', 'migrated'];
 const ACTIVE_STATUS_SQL = "('posted', 'migrated')";
 
+// Runs `primarySql`; if it fails specifically because a column referenced in
+// it doesn't exist yet on this DB (a migration hasn't been applied there),
+// falls back to `fallbackSql` instead of 500ing. Any other error still
+// throws. This is what kept /api/rent and /api/dashboard alive the last time
+// a new column (custom_advance) shipped in code before its migration had
+// been applied to the live database -- reused here for first_month_due_option
+// so the same class of outage can't happen again.
+async function queryWithColumnFallback(env, primarySql, fallbackSql, binds, method) {
+  try {
+    return await env.DB.prepare(primarySql).bind(...binds)[method]();
+  } catch (e) {
+    const msg = String((e && e.message) || e);
+    if (!msg.includes('no such column') && !msg.includes('has no column')) throw e;
+    return await env.DB.prepare(fallbackSql).bind(...binds)[method]();
+  }
+}
+
 // Make sure every resident who has actually moved in by `month` has a
 // rent_ledger row for it. Deliberately does NOT use `status IN ('active',
 // 'notice_given')` alone -- a bed can be assigned (status='active') to a
@@ -46,9 +63,14 @@ const ACTIVE_STATUS_SQL = "('posted', 'migrated')";
 // The due date for that first partial month also can't stay hardcoded to
 // the 5th -- for anyone joining after the 5th, that date is already in the
 // past, so their very first rent entry would read "overdue" before they'd
-// even moved in. It falls back to the last day of that month instead, which
-// also happens to line up with when most residents actually get paid.
-function computeMonthRentDetails(fullAmount, joinDate, month) {
+// even moved in. By default it falls back to the last day of that month
+// instead, which also happens to line up with when most residents actually
+// get paid -- but this is a per-resident preference (dueOption), not a fixed
+// rule: some residents would rather pay on their own join-date anniversary.
+// dueOption: 'join_date' = due on the day they joined. Anything else (null/
+// 'cycle') = the regular cycle described above. Only ever affects the join
+// month; every month after reverts to the normal 5th regardless of dueOption.
+function computeMonthRentDetails(fullAmount, joinDate, month, dueOption) {
   const standardDueDate = `${month}-05`;
   const isJoinMonth = joinDate && joinDate.slice(0, 7) === month;
   if (!isJoinMonth) {
@@ -60,9 +82,11 @@ function computeMonthRentDetails(fullAmount, joinDate, month) {
   const joinDay = parseInt(joinDate.slice(8, 10), 10);
   const daysStayed = totalDays - joinDay + 1;
   const amount = Math.round(fullAmount * daysStayed / totalDays);
-  const dueDate = joinDate > standardDueDate
-    ? `${month}-${String(totalDays).padStart(2, '0')}`
-    : standardDueDate;
+  const dueDate = dueOption === 'join_date'
+    ? joinDate
+    : joinDate > standardDueDate
+      ? `${month}-${String(totalDays).padStart(2, '0')}`
+      : standardDueDate;
 
   return { amount, dueDate, isJoinMonth };
 }
@@ -70,15 +94,25 @@ function computeMonthRentDetails(fullAmount, joinDate, month) {
 export async function ensureLedgerRows(env, pgId, month) {
   const today = new Date().toISOString().slice(0, 10);
   const isRealCurrentMonth = month === today.slice(0, 7);
-  const { results: dueResidents } = await env.DB.prepare(`
-    SELECT res.id, res.custom_rent, res.join_date, r.monthly_rent
-    FROM residents res
-    JOIN beds b ON b.id = res.bed_id
-    JOIN rooms r ON r.id = b.room_id
-    WHERE res.pg_id = ? AND res.status IN ('active', 'notice_given')
-      AND substr(res.join_date, 1, 7) <= ?
-      AND res.join_date <= ?
-  `).bind(pgId, month, today).all();
+  const { results: dueResidents } = await queryWithColumnFallback(
+    env,
+    `SELECT res.id, res.custom_rent, res.join_date, res.first_month_due_option, r.monthly_rent
+     FROM residents res
+     JOIN beds b ON b.id = res.bed_id
+     JOIN rooms r ON r.id = b.room_id
+     WHERE res.pg_id = ? AND res.status IN ('active', 'notice_given')
+       AND substr(res.join_date, 1, 7) <= ?
+       AND res.join_date <= ?`,
+    `SELECT res.id, res.custom_rent, res.join_date, r.monthly_rent
+     FROM residents res
+     JOIN beds b ON b.id = res.bed_id
+     JOIN rooms r ON r.id = b.room_id
+     WHERE res.pg_id = ? AND res.status IN ('active', 'notice_given')
+       AND substr(res.join_date, 1, 7) <= ?
+       AND res.join_date <= ?`,
+    [pgId, month, today],
+    'all'
+  );
 
   if (dueResidents.length === 0) return;
 
@@ -98,7 +132,7 @@ export async function ensureLedgerRows(env, pgId, month) {
   for (const res of dueResidents) {
     // custom_rent (per-bed override) wins over the room's shared monthly_rent
     const fullAmount = res.custom_rent != null ? res.custom_rent : res.monthly_rent;
-    const { amount: expectedAmount, dueDate, isJoinMonth } = computeMonthRentDetails(fullAmount, res.join_date, month);
+    const { amount: expectedAmount, dueDate, isJoinMonth } = computeMonthRentDetails(fullAmount, res.join_date, month, res.first_month_due_option);
     const existing = existingByResident.get(res.id);
 
     if (!existing) {
@@ -146,23 +180,35 @@ export async function syncCurrentMonthRent(env, residentId) {
   const today = new Date().toISOString().slice(0, 10);
   const month = today.slice(0, 7);
 
-  const res = await env.DB.prepare(`
-    SELECT res.custom_rent, res.join_date, r.monthly_rent
-    FROM residents res
-    JOIN beds b ON b.id = res.bed_id
-    JOIN rooms r ON r.id = b.room_id
-    WHERE res.id = ?
-  `).bind(residentId).first();
+  const res = await queryWithColumnFallback(
+    env,
+    `SELECT res.custom_rent, res.join_date, res.first_month_due_option, r.monthly_rent
+     FROM residents res
+     JOIN beds b ON b.id = res.bed_id
+     JOIN rooms r ON r.id = b.room_id
+     WHERE res.id = ?`,
+    `SELECT res.custom_rent, res.join_date, r.monthly_rent
+     FROM residents res
+     JOIN beds b ON b.id = res.bed_id
+     JOIN rooms r ON r.id = b.room_id
+     WHERE res.id = ?`,
+    [residentId],
+    'first'
+  );
   if (!res) return;
 
   const fullAmount = res.custom_rent != null ? res.custom_rent : res.monthly_rent;
-  const { amount: expectedAmount } = computeMonthRentDetails(fullAmount, res.join_date, month);
+  const { amount: expectedAmount, dueDate } = computeMonthRentDetails(fullAmount, res.join_date, month, res.first_month_due_option);
   const existing = await env.DB.prepare(
-    'SELECT id, amount_due FROM rent_ledger WHERE resident_id = ? AND month = ?'
+    'SELECT id, amount_due, due_date FROM rent_ledger WHERE resident_id = ? AND month = ?'
   ).bind(residentId, month).first();
 
-  if (existing && existing.amount_due !== expectedAmount) {
-    await recomputeRentLedgerRow(env, existing.id, expectedAmount);
+  if (existing && (existing.amount_due !== expectedAmount || existing.due_date !== dueDate)) {
+    // due_date only actually moves when this resident is in their own join
+    // month (computeMonthRentDetails returns the standard 5th otherwise) --
+    // an edit to first_month_due_option made after that month has passed
+    // has no live row left to touch anyway.
+    await recomputeRentLedgerRow(env, existing.id, expectedAmount, dueDate);
   }
 }
 
@@ -170,7 +216,10 @@ export async function syncCurrentMonthRent(env, residentId) {
 // amount_due (which may have just changed), off the payments actually
 // linked to it. Shared by ensureLedgerRows' self-heal and
 // recomputeResidentLedger below, so there is exactly one formula.
-async function recomputeRentLedgerRow(env, rentLedgerId, amountDue) {
+// dueDate is optional -- only syncCurrentMonthRent's explicit-edit path
+// passes it (when first_month_due_option changes); the other two callers
+// recompute amount/status only and leave the stored due_date untouched.
+async function recomputeRentLedgerRow(env, rentLedgerId, amountDue, dueDate) {
   const sum = await env.DB.prepare(`
     SELECT COALESCE(SUM(amount), 0) as total FROM payments
     WHERE rent_ledger_id = ? AND payment_type = 'rent' AND status IN ${ACTIVE_STATUS_SQL}
@@ -179,9 +228,15 @@ async function recomputeRentLedgerRow(env, rentLedgerId, amountDue) {
   const paid = Math.min(sum.total, amountDue);
   const status = paid >= amountDue ? 'paid' : paid > 0 ? 'partial' : 'pending';
 
-  await env.DB.prepare(
-    'UPDATE rent_ledger SET amount_due = ?, amount_paid = ?, status = ? WHERE id = ?'
-  ).bind(amountDue, paid, status, rentLedgerId).run();
+  if (dueDate) {
+    await env.DB.prepare(
+      'UPDATE rent_ledger SET amount_due = ?, amount_paid = ?, status = ?, due_date = ? WHERE id = ?'
+    ).bind(amountDue, paid, status, dueDate, rentLedgerId).run();
+  } else {
+    await env.DB.prepare(
+      'UPDATE rent_ledger SET amount_due = ?, amount_paid = ?, status = ? WHERE id = ?'
+    ).bind(amountDue, paid, status, rentLedgerId).run();
+  }
 }
 
 // Re-derives every rent_ledger row and residents.advance_paid for one

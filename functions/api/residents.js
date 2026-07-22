@@ -93,7 +93,8 @@ export async function onRequestPost({ request, env }) {
       name, photo_url, phone, alt_phone, aadhaar_number, aadhaar_photo_url, aadhaar_back_photo_url,
       pan_number, pan_photo_url, id_proof_type, id_proof_number, id_proof_photo_url, passport_photo_url,
       occupation, company_or_college, emergency_contact_name, emergency_contact_phone,
-      bed_id, join_date, advance_paid, agreement_signed, police_verification_status, notes, custom_rent, custom_advance
+      bed_id, join_date, advance_paid, agreement_signed, police_verification_status, notes,
+      custom_rent, custom_advance, first_month_due_option
     } = body;
 
     if (!name || !phone || !bed_id || !join_date) {
@@ -113,50 +114,60 @@ export async function onRequestPost({ request, env }) {
       return jsonResponse({ error: 'That bed is already occupied' }, 409);
     }
 
+    // Columns guaranteed to exist since the base migration -- always sent.
+    const baseFields = [
+      ['pg_id', pgId], ['name', name], ['photo_url', photo_url || null],
+      ['phone', phone], ['alt_phone', alt_phone || null],
+      ['aadhaar_number', aadhaar_number || null],
+      ['id_proof_type', id_proof_type || null], ['id_proof_number', id_proof_number || null],
+      ['occupation', occupation || null], ['company_or_college', company_or_college || null],
+      ['emergency_contact_name', emergency_contact_name || null],
+      ['emergency_contact_phone', emergency_contact_phone || null],
+      ['bed_id', bed_id], ['join_date', join_date], ['advance_paid', advance_paid || 0],
+      ['agreement_signed', agreement_signed ? 1 : 0],
+      ['police_verification_status', police_verification_status || 'pending'],
+      ['notes', notes || null],
+    ];
+    // Columns from newer migrations -- may not exist yet on every deployment.
+    // Sent optimistically; any that turn out missing get dropped one at a
+    // time and the insert retried, instead of a bare two-tier fallback that
+    // would drop unrelated newer columns just because ONE of them is missing.
+    const optionalFields = [
+      ['aadhaar_photo_url', aadhaar_photo_url || null],
+      ['aadhaar_back_photo_url', aadhaar_back_photo_url || null],
+      ['pan_number', pan_number || null], ['pan_photo_url', pan_photo_url || null],
+      ['id_proof_photo_url', id_proof_photo_url || null],
+      ['passport_photo_url', passport_photo_url || null],
+      ['custom_rent', custom_rent || null], ['custom_advance', custom_advance || null],
+      ['first_month_due_option', first_month_due_option || null],
+    ];
+
+    let fields = [...baseFields, ...optionalFields];
     let result;
-    try {
-      result = await env.DB.prepare(`
-        INSERT INTO residents (
-          pg_id, name, photo_url, phone, alt_phone, aadhaar_number, aadhaar_photo_url, aadhaar_back_photo_url,
-          pan_number, pan_photo_url, id_proof_type, id_proof_number, id_proof_photo_url, passport_photo_url,
-          occupation, company_or_college, emergency_contact_name, emergency_contact_phone,
-          bed_id, join_date, advance_paid, agreement_signed, police_verification_status, status, notes, custom_rent, custom_advance
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
-      `).bind(
-        pgId, name, photo_url || null, phone, alt_phone || null,
-        aadhaar_number || null, aadhaar_photo_url || null, aadhaar_back_photo_url || null,
-        pan_number || null, pan_photo_url || null,
-        id_proof_type || null, id_proof_number || null, id_proof_photo_url || null, passport_photo_url || null,
-        occupation || null, company_or_college || null,
-        emergency_contact_name || null, emergency_contact_phone || null,
-        bed_id, join_date, advance_paid || 0,
-        agreement_signed ? 1 : 0, police_verification_status || 'pending', notes || null,
-        custom_rent || null, custom_advance || null
-      ).run();
-    } catch (e) {
-      const msg = String((e && e.message) || e);
-      if (msg.includes('no such column') || msg.includes('has no column')) {
-        // Older DB schema (migrations 0004/0007 not yet applied) — retry with
-        // only the columns guaranteed to exist since the base migration.
-        result = await env.DB.prepare(`
-          INSERT INTO residents (
-            pg_id, name, photo_url, phone, alt_phone, aadhaar_number,
-            id_proof_type, id_proof_number,
-            occupation, company_or_college, emergency_contact_name, emergency_contact_phone,
-            bed_id, join_date, advance_paid, agreement_signed, police_verification_status, status, notes
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
-        `).bind(
-          pgId, name, photo_url || null, phone, alt_phone || null,
-          aadhaar_number || null,
-          id_proof_type || null, id_proof_number || null,
-          occupation || null, company_or_college || null,
-          emergency_contact_name || null, emergency_contact_phone || null,
-          bed_id, join_date, advance_paid || 0,
-          agreement_signed ? 1 : 0, police_verification_status || 'pending', notes || null
-        ).run();
-      } else {
-        // Surface the real DB error instead of a bare, undiagnosable 500.
-        return jsonResponse({ error: 'Could not save resident: ' + msg }, 500);
+    for (let attempt = 0; ; attempt++) {
+      const cols = fields.map(([c]) => c);
+      const vals = fields.map(([, v]) => v);
+      try {
+        result = await env.DB.prepare(
+          `INSERT INTO residents (${cols.join(', ')}, status) VALUES (${cols.map(() => '?').join(', ')}, 'active')`
+        ).bind(...vals).run();
+        break;
+      } catch (e) {
+        const msg = String((e && e.message) || e);
+        const match = msg.match(/no such column:\s*(\w+)/i) || msg.match(/has no column named[: ]?(\w+)/i);
+        if (!match || attempt > optionalFields.length) {
+          // Not a missing-column error (or we've already retried once per
+          // optional column and it's still failing) -- surface the real
+          // error instead of a bare, undiagnosable 500.
+          return jsonResponse({ error: 'Could not save resident: ' + msg }, 500);
+        }
+        const missingCol = match[1];
+        const before = fields.length;
+        fields = fields.filter(([c]) => c !== missingCol);
+        if (fields.length === before) {
+          // Couldn't identify the column to drop -- avoid looping forever.
+          return jsonResponse({ error: 'Could not save resident: ' + msg }, 500);
+        }
       }
     }
 

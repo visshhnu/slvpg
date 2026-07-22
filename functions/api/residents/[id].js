@@ -94,8 +94,14 @@ export async function onRequestPatch({ request, env, params }) {
       'status', 'notice_date', 'planned_vacate_date', 'actual_vacate_date',
       'room_inspection_done', 'room_inspection_notes', 'deductions', 'deduction_reason',
       'refund_paid', 'refund_paid_date', 'notes', 'advance_paid', 'bed_id', 'join_date',
-      'agreement_signed', 'agreement_url', 'police_verification_status', 'custom_rent', 'custom_advance'
+      'agreement_signed', 'agreement_url', 'police_verification_status', 'custom_rent', 'custom_advance',
+      'first_month_due_option'
     ];
+    // Columns from migrations that may not have been applied to this DB yet
+    // -- if the UPDATE fails on one of these specifically, it gets dropped
+    // and the update retried rather than failing the whole edit (name/phone/
+    // etc. should still save even if an override field can't).
+    const RETRYABLE_IF_MISSING = new Set(['custom_advance', 'first_month_due_option']);
 
     const updates = [];
     const binds = [];
@@ -143,44 +149,37 @@ export async function onRequestPatch({ request, env, params }) {
     }
 
     binds.push(params.id);
-    try {
-      await env.DB.prepare(
-        `UPDATE residents SET ${updates.join(', ')} WHERE id = ?`
-      ).bind(...binds).run();
-    } catch (e) {
-      const msg = String((e && e.message) || e);
-      if ((msg.includes('no such column') || msg.includes('has no column')) && msg.includes('custom_advance')) {
-        // custom_advance migration not applied to this DB yet -- retry without
-        // it rather than failing the whole edit (name/phone/etc. should still
-        // save even if the advance override can't, same fallback pattern as
-        // residents.js POST for custom_rent on older schemas).
-        const idx = allowedFields.indexOf('custom_advance');
-        const bodyHadCustomAdvance = idx !== -1 && 'custom_advance' in body;
-        if (bodyHadCustomAdvance) {
-          const updateIdx = updates.findIndex(u => u.startsWith('custom_advance'));
-          if (updateIdx !== -1) {
-            updates.splice(updateIdx, 1);
-            binds.splice(updateIdx, 1);
-          }
-        }
-        if (updates.length === 0) {
+    let droppedFields = [];
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await env.DB.prepare(
+          `UPDATE residents SET ${updates.join(', ')} WHERE id = ?`
+        ).bind(...binds).run();
+        break;
+      } catch (e) {
+        const msg = String((e && e.message) || e);
+        const match = msg.match(/no such column:\s*(\w+)/i) || msg.match(/has no column named[: ]?(\w+)/i);
+        const missingCol = match && match[1];
+        if (!missingCol || !RETRYABLE_IF_MISSING.has(missingCol)) {
           return jsonResponse({
-            error: 'The advance override can\'t be saved until an admin runs the latest migrations (wrangler d1 migrations apply). No changes were saved.'
+            error: missingCol
+              ? 'This update includes a field your database doesn\'t have yet. Ask an admin to run the latest migrations (wrangler d1 migrations apply), then try again. (' + msg + ')'
+              : 'Could not save changes: ' + msg
           }, 500);
         }
-        try {
-          await env.DB.prepare(
-            `UPDATE residents SET ${updates.join(', ')} WHERE id = ?`
-          ).bind(...binds).run();
-        } catch (e2) {
-          return jsonResponse({ error: 'Could not save changes: ' + String((e2 && e2.message) || e2) }, 500);
+        const updateIdx = updates.findIndex(u => u.startsWith(missingCol + ' '));
+        if (updateIdx === -1) {
+          // Already dropped, or not something we can retry without -- bail.
+          return jsonResponse({ error: 'Could not save changes: ' + msg }, 500);
         }
-      } else if (msg.includes('no such column') || msg.includes('has no column')) {
-        return jsonResponse({
-          error: 'This update includes a field your database doesn\'t have yet. Ask an admin to run the latest migrations (wrangler d1 migrations apply), then try again. (' + msg + ')'
-        }, 500);
-      } else {
-        return jsonResponse({ error: 'Could not save changes: ' + msg }, 500);
+        updates.splice(updateIdx, 1);
+        binds.splice(updateIdx, 1);
+        droppedFields.push(missingCol);
+        if (updates.length === 0) {
+          return jsonResponse({
+            error: `The following couldn't be saved until an admin runs the latest migrations (wrangler d1 migrations apply): ${droppedFields.join(', ')}. No changes were saved.`
+          }, 500);
+        }
       }
     }
 
@@ -191,7 +190,7 @@ export async function onRequestPatch({ request, env, params }) {
     // unrelated page load happens to trigger ensureLedgerRows. This is
     // exactly the "I corrected the rent/room but it still shows the old
     // due/overpaid figures" gap.
-    if ('custom_rent' in body || 'bed_id' in body) {
+    if ('custom_rent' in body || 'bed_id' in body || 'first_month_due_option' in body) {
       await syncCurrentMonthRent(env, params.id);
     }
 
