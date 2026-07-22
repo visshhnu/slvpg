@@ -43,6 +43,7 @@ async function selectPg(pgId) {
   updatePgLabel();
   closeModal();
   switchTab(state.currentTab); // reload current screen with new PG's data
+  checkDueNotifications(); // app.js -- this PG has its own once-per-day check
 }
 
 function openAddPgModal() {

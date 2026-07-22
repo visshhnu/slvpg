@@ -21,12 +21,44 @@ function computeDuesSummary(rentRows) {
     .sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''));
 }
 
+// Notification permission is a browser-level, one-time opt-in -- shown as a
+// row inside this card (rather than buried in Settings) since this is
+// exactly the data it's for. 'unsupported' covers browsers/contexts (e.g.
+// some in-app webviews) where the Notification API doesn't exist at all.
+function notificationStatusRow() {
+  const status = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported';
+  if (status === 'unsupported') return '';
+  if (status === 'granted') {
+    return `<div style="font-size:11px;color:var(--ink-soft);margin-top:8px;">🔔 Reminders on — opening the app will notify you if something's newly overdue or due soon.</div>`;
+  }
+  if (status === 'denied') {
+    return `<div style="font-size:11px;color:var(--ink-soft);margin-top:8px;">Notifications are blocked in your browser settings for this site.</div>`;
+  }
+  return `<button class="btn btn-outline btn-sm" style="margin-top:8px;width:100%;" onclick="enableDueNotifications()">🔔 Enable Rent Reminders</button>`;
+}
+
+async function enableDueNotifications() {
+  if (typeof Notification === 'undefined') {
+    showToast('Notifications are not supported on this browser.', 'error');
+    return;
+  }
+  const perm = await Notification.requestPermission();
+  if (perm === 'granted') {
+    showToast('Rent reminders enabled.', 'success');
+    checkDueNotifications(); // app.js -- fires immediately if something's already due
+  } else {
+    showToast('Notifications were not enabled.', 'error');
+  }
+  if (state.currentTab === 'menu') loadMenu();
+}
+
 function renderDuesSummaryCard(duesList) {
   if (duesList.length === 0) {
     return `
       <div class="card">
         <div class="card-title">Rent Due Soon &amp; Overdue</div>
         <div class="empty-state" style="padding:14px;">Nothing overdue or due in the next 5 days. ✓</div>
+        ${notificationStatusRow()}
       </div>`;
   }
   return `
@@ -45,6 +77,7 @@ function renderDuesSummaryCard(duesList) {
         </div>
       `).join('')}
       <button class="btn btn-outline btn-sm" style="margin-top:8px;width:100%;" onclick="switchTab('rent')">Open Rent tab</button>
+      ${notificationStatusRow()}
     </div>`;
 }
 

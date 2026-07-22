@@ -212,6 +212,48 @@ async function enterApp() {
     }
   } catch {}
   switchTab(lastTab);
+
+  // Fire-and-forget -- must never block or fail app entry (Notification API
+  // support, permission state, and the /rent fetch are all best-effort here).
+  checkDueNotifications();
+}
+
+// Notifies (if permission was already granted via enableDueNotifications in
+// settings.js) when this PG has anyone overdue or due soon -- checked once
+// per calendar day per PG, on app entry and on switching properties, NOT on
+// every single screen change (that would be spammy, not a reminder). This
+// only fires while the app is actually open -- there is no background/
+// closed-app push here, see the Menu > Rent Due card for why.
+async function checkDueNotifications() {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  if (!state.currentPgId) return;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const key = `pg_dues_notified_${state.currentPgId}`;
+  try {
+    if (localStorage.getItem(key) === today) return;
+  } catch {}
+
+  try {
+    const duesList = computeDuesSummary((await api('/rent')).rows);
+    if (duesList.length > 0) {
+      const overdueCount = duesList.filter(r => r.isOverdue).length;
+      const dueSoonCount = duesList.length - overdueCount;
+      const parts = [];
+      if (overdueCount > 0) parts.push(`${overdueCount} overdue`);
+      if (dueSoonCount > 0) parts.push(`${dueSoonCount} due soon`);
+      const pg = state.pgList.find(p => p.id === state.currentPgId);
+      new Notification('Rent Due & Overdue' + (pg ? ` — ${pg.name}` : ''), {
+        body: `${parts.join(', ')}. Open the app to review.`,
+        icon: '/icon-192.png',
+        tag: 'rent-dues-' + state.currentPgId, // replaces any earlier one for this PG instead of stacking
+      });
+    }
+    try { localStorage.setItem(key, today); } catch {}
+  } catch {
+    // /rent fetch failed -- silently skip, this is a best-effort reminder,
+    // not something that should surface an error to the user.
+  }
 }
 
 // True for admin (sees every PG) or a staff/pg_manager account explicitly
