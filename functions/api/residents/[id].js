@@ -1,5 +1,5 @@
 // functions/api/residents/[id].js
-import { requireAuth, jsonResponse, unauthorized } from '../../_auth.js';
+import { requireAuth, jsonResponse, unauthorized, isPgAllowed } from '../../_auth.js';
 import { deriveRentStatus, deriveAdvanceState, syncCurrentMonthRent } from '../../_ledger.js';
 
 function daysBetween(a, b) {
@@ -32,7 +32,7 @@ export async function onRequestGet({ request, env, params }) {
   `).bind(params.id).first();
 
   if (!resident) return jsonResponse({ error: 'Not found' }, 404);
-  if (session.role !== 'admin' && resident.pg_id !== session.pgId) return unauthorized();
+  if (!isPgAllowed(session, resident.pg_id)) return unauthorized();
 
   // ledger_month lets the payment-history UI label a rent payment "for July
   // 2026" etc. -- without it, two real payments for two different months

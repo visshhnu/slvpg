@@ -1,5 +1,5 @@
 // functions/api/rooms/[id].js
-import { requireAuth, jsonResponse, unauthorized } from '../../_auth.js';
+import { requireAuth, jsonResponse, unauthorized, isPgAllowed } from '../../_auth.js';
 import { syncCurrentMonthRent } from '../../_ledger.js';
 
 export async function onRequestGet({ request, env, params }) {
@@ -8,7 +8,7 @@ export async function onRequestGet({ request, env, params }) {
 
   const room = await env.DB.prepare('SELECT * FROM rooms WHERE id = ?').bind(params.id).first();
   if (!room) return jsonResponse({ error: 'Not found' }, 404);
-  if (session.role !== 'admin' && room.pg_id !== session.pgId) return unauthorized();
+  if (!isPgAllowed(session, room.pg_id)) return unauthorized();
 
   const { results: facilities } = await env.DB.prepare(
     'SELECT * FROM room_facilities WHERE room_id = ? ORDER BY id'
@@ -23,7 +23,7 @@ export async function onRequestPatch({ request, env, params }) {
 
   const room = await env.DB.prepare('SELECT * FROM rooms WHERE id = ?').bind(params.id).first();
   if (!room) return jsonResponse({ error: 'Not found' }, 404);
-  if (session.role !== 'admin' && room.pg_id !== session.pgId) return unauthorized();
+  if (!isPgAllowed(session, room.pg_id)) return unauthorized();
 
   const body = await request.json();
 

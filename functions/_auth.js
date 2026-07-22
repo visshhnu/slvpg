@@ -84,3 +84,19 @@ export function resolvePgId(session, url) {
   if (session.pgId) return session.pgId; // single-PG staff: always their own PG
   return requestedNum; // admin: whichever they ask for, or null for "all"
 }
+
+// True if this session may operate on the given pg_id -- for endpoints that
+// look up ONE existing record (a specific resident, room, check-in receipt)
+// and then need to check "does this record actually belong to a PG this
+// session can touch", rather than resolving which PG a *new* request should
+// target (that's resolvePgId, above). Comparing directly against
+// session.pgId for this is a bug: session.pgId only ever holds the PRIMARY
+// PG, so it wrongly rejects a multi-PG staff member viewing/editing a record
+// that belongs to one of their OTHER assigned PGs.
+export function isPgAllowed(session, pgId) {
+  if (session.role === 'admin') return true;
+  if (Array.isArray(session.pgIds) && session.pgIds.length > 0) {
+    return session.pgIds.includes(pgId);
+  }
+  return session.pgId === pgId;
+}
