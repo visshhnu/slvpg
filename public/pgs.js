@@ -12,7 +12,7 @@ function openPgSwitcher() {
     </div>
     <div class="card" style="margin-bottom:14px;">
       ${state.pgList.map(pg => `
-        <div class="list-row" style="cursor:pointer;" onclick="selectPg(${pg.id})">
+        <div class="list-row" style="cursor:pointer;border-left:4px solid ${pgAccentColor(pg.id)};padding-left:10px;" onclick="selectPg(${pg.id})">
           <div class="list-row-main">
             <div class="list-row-title">${escapeHtml(pg.name)}</div>
             <div class="list-row-sub">${pg.address ? escapeHtml(pg.address.slice(0, 50)) + '…' : 'No address set'}</div>
@@ -27,6 +27,9 @@ function openPgSwitcher() {
 
 async function selectPg(pgId) {
   state.currentPgId = pgId;
+  // Persisted so a reload restores THIS PG instead of always falling back
+  // to whichever one happens to sort first -- see enterApp() in app.js.
+  try { localStorage.setItem('pg_last_pg_id', pgId); } catch {}
   // Every per-PG cache must be dropped here, not just currentPgId -- without
   // this, an admin switching properties would keep seeing the PREVIOUS PG's
   // room layout (state.rooms), resident list or rent data until something
@@ -82,6 +85,7 @@ async function submitAddPg() {
     });
     state.pgList = await api('/pgs');
     state.currentPgId = result.id;
+    try { localStorage.setItem('pg_last_pg_id', result.id); } catch {}
     updatePgLabel();
     closeModal();
     showToast('PG created. Now add its rooms from the Rooms tab.', 'success');

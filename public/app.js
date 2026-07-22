@@ -182,9 +182,19 @@ async function enterApp() {
     // PG name label could show the wrong property).
     state.currentPgId = state.staff.pgId;
   } else if (state.pgList.length > 0) {
-    // Admin, or a multi-PG staff/pg_manager: default to their first
-    // assigned PG (or whichever was already selected, e.g. after a reload).
-    state.currentPgId = state.currentPgId || (state.staff.pgIds ? state.staff.pgIds[0] : state.pgList[0].id);
+    // Admin, or a multi-PG staff/pg_manager: restore whichever PG was last
+    // being viewed (persisted across reloads by selectPg() in pgs.js) --
+    // without this, state.currentPgId is always null on a fresh page load
+    // (in-memory state doesn't survive a refresh), so this branch used to
+    // ALWAYS fall through to "first PG in the list" no matter which
+    // property you'd actually been viewing. That's the "refresh silently
+    // switches me to a different PG" bug: after a reload, whichever PG
+    // happens to sort first (or be first in pgIds) won that race every
+    // single time, regardless of what was on screen a moment ago.
+    let lastPgId = null;
+    try { lastPgId = parseInt(localStorage.getItem('pg_last_pg_id'), 10) || null; } catch {}
+    const stillAssigned = lastPgId && state.pgList.some(p => p.id === lastPgId);
+    state.currentPgId = stillAssigned ? lastPgId : (state.staff.pgIds ? state.staff.pgIds[0] : state.pgList[0].id);
   }
   updatePgLabel();
 
@@ -212,9 +222,26 @@ function canSwitchPg() {
   return state.staff.role === 'admin' || (Array.isArray(state.staff.pgIds) && state.staff.pgIds.length > 1);
 }
 
+// Every PG otherwise shares the exact same logo, navy header and theme --
+// nothing visually told two properties apart, which is exactly how someone
+// can end up recording a payment or expense against the wrong PG without
+// noticing. Deterministic per pg_id (not per name/position), so a given
+// property always gets the same color no matter what order pgList sorts in.
+const PG_ACCENT_PALETTE = ['#E67E22', '#16A085', '#8E44AD', '#C0392B', '#2980B9', '#D4AC0D', '#27AE60', '#D35400'];
+function pgAccentColor(pgId) {
+  if (!pgId) return PG_ACCENT_PALETTE[0];
+  return PG_ACCENT_PALETTE[pgId % PG_ACCENT_PALETTE.length];
+}
+
 function updatePgLabel() {
   const pg = state.pgList.find(p => p.id === state.currentPgId);
   document.getElementById('pg-name-label').textContent = pg ? pg.name : '—';
+
+  const accent = pgAccentColor(state.currentPgId);
+  const header = document.querySelector('.app-header');
+  if (header) header.style.borderBottom = `4px solid ${accent}`;
+  const dot = document.getElementById('pg-color-dot');
+  if (dot) dot.style.background = accent;
 }
 
 // ---------- TAB NAVIGATION ----------
