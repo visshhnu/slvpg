@@ -1,5 +1,53 @@
 // ===== Settings screen =====
 
+// Deliberately narrower than the Rent tab's full list: only residents who
+// actually need attention right now -- already overdue, already partially
+// paid (a balance sitting open regardless of how far off the due date is),
+// or fully pending with a due date inside the next 5 days. A resident who's
+// simply pending with a due date three weeks out is normal, not urgent, and
+// is left out so this card stays a short, scannable action list instead of
+// duplicating the Rent tab.
+function computeDuesSummary(rentRows) {
+  const today = new Date().toISOString().slice(0, 10);
+  const soonCutoff = new Date();
+  soonCutoff.setDate(soonCutoff.getDate() + 5);
+  const soonCutoffStr = soonCutoff.toISOString().slice(0, 10);
+
+  return (rentRows || [])
+    .filter(r => r.id) // only rows actually billed this month
+    .filter(r => r.status === 'overdue' || r.status === 'partial'
+      || (r.status === 'pending' && r.due_date && r.due_date <= soonCutoffStr))
+    .map(r => ({ ...r, balance: r.amount_due - r.amount_paid, isOverdue: r.status === 'overdue' || (r.due_date && r.due_date < today) }))
+    .sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''));
+}
+
+function renderDuesSummaryCard(duesList) {
+  if (duesList.length === 0) {
+    return `
+      <div class="card">
+        <div class="card-title">Rent Due Soon &amp; Overdue</div>
+        <div class="empty-state" style="padding:14px;">Nothing overdue or due in the next 5 days. ✓</div>
+      </div>`;
+  }
+  return `
+    <div class="card" style="border-color:var(--red,#B23B3B);">
+      <div class="card-title" style="color:var(--red,#B23B3B);">Rent Due Soon &amp; Overdue (${duesList.length})</div>
+      ${duesList.map(r => `
+        <div class="list-row">
+          <div class="list-row-main">
+            <div class="list-row-title" style="font-size:13.5px;">${escapeHtml(r.resident_name)}</div>
+            <div class="list-row-sub">${r.floor || ''} ${r.room_number || ''}${r.bed_label ? '-' + r.bed_label : ''} · ${r.isOverdue ? `Was due ${fmtDate(r.due_date)}` : `Due ${fmtDate(r.due_date)}`}</div>
+          </div>
+          <div style="text-align:right;">
+            <span class="badge ${r.isOverdue ? 'badge-red' : r.status === 'partial' ? 'badge-amber' : 'badge-gray'}">${r.isOverdue ? 'Overdue' : r.status === 'partial' ? 'Partial' : 'Due soon'}</span>
+            <div style="font-size:12px;font-weight:600;margin-top:3px;">${fmtMoney(r.balance)}</div>
+          </div>
+        </div>
+      `).join('')}
+      <button class="btn btn-outline btn-sm" style="margin-top:8px;width:100%;" onclick="switchTab('rent')">Open Rent tab</button>
+    </div>`;
+}
+
 async function loadSettings() {
   const el = document.getElementById('screen-settings');
   el.innerHTML = `<div class="card"><div class="empty-state">Loading…</div></div>`;
@@ -14,15 +62,19 @@ async function loadSettings() {
     // don't get this card.
     let fixedCharges = [];
     let corrections = [];
+    let duesList = [];
     try { fixedCharges = await api('/fixed-charges'); } catch {}
     if (state.staff.role === 'pg_manager') {
       try { corrections = await api('/corrections?status=open'); } catch {}
     }
+    try { duesList = computeDuesSummary((await api('/rent')).rows); } catch {}
     el.innerHTML = `
       <div class="card">
         <div class="card-title">Logged in as</div>
         <div class="list-row"><div class="list-row-main"><div class="list-row-title">${escapeHtml(state.staff.name)}</div><div class="list-row-sub">${state.staff.role === 'pg_manager' ? 'PG Manager' : 'Staff account'}</div></div></div>
       </div>
+
+      ${renderDuesSummaryCard(duesList)}
 
       ${corrections.length > 0 ? `
         <div class="card" style="border-color:var(--red);">
@@ -61,22 +113,24 @@ async function loadSettings() {
   }
 
   try {
-    const [staffList, fixedCharges, corrections] = await Promise.all([
-      api('/staff'), api('/fixed-charges'), api('/corrections?status=open'),
+    const [staffList, fixedCharges, corrections, rentData] = await Promise.all([
+      api('/staff'), api('/fixed-charges'), api('/corrections?status=open'), api('/rent'),
     ]);
-    renderSettings(staffList, fixedCharges, corrections);
+    renderSettings(staffList, fixedCharges, corrections, computeDuesSummary(rentData.rows));
   } catch (e) {
     el.innerHTML = `<div class="card"><div class="empty-state-title">Couldn't load settings</div><div>${e.message}</div></div>`;
   }
 }
 
-function renderSettings(staffList, fixedCharges, corrections) {
+function renderSettings(staffList, fixedCharges, corrections, duesList) {
   const el = document.getElementById('screen-settings');
   el.innerHTML = `
     <div class="card">
       <div class="card-title">Logged in as</div>
       <div class="list-row"><div class="list-row-main"><div class="list-row-title">${escapeHtml(state.staff.name)}</div><div class="list-row-sub">Admin · sees all PGs</div></div></div>
     </div>
+
+    ${renderDuesSummaryCard(duesList)}
 
     ${corrections.length > 0 ? `
       <div class="card" style="border-color:var(--red);">
