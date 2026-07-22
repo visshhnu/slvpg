@@ -62,19 +62,15 @@ async function loadSettings() {
     // don't get this card.
     let fixedCharges = [];
     let corrections = [];
-    let duesList = [];
     try { fixedCharges = await api('/fixed-charges'); } catch {}
     if (state.staff.role === 'pg_manager') {
       try { corrections = await api('/corrections?status=open'); } catch {}
     }
-    try { duesList = computeDuesSummary((await api('/rent')).rows); } catch {}
     el.innerHTML = `
       <div class="card">
         <div class="card-title">Logged in as</div>
         <div class="list-row"><div class="list-row-main"><div class="list-row-title">${escapeHtml(state.staff.name)}</div><div class="list-row-sub">${state.staff.role === 'pg_manager' ? 'PG Manager' : 'Staff account'}</div></div></div>
       </div>
-
-      ${renderDuesSummaryCard(duesList)}
 
       ${corrections.length > 0 ? `
         <div class="card" style="border-color:var(--red);">
@@ -113,16 +109,16 @@ async function loadSettings() {
   }
 
   try {
-    const [staffList, fixedCharges, corrections, rentData] = await Promise.all([
-      api('/staff'), api('/fixed-charges'), api('/corrections?status=open'), api('/rent'),
+    const [staffList, fixedCharges, corrections] = await Promise.all([
+      api('/staff'), api('/fixed-charges'), api('/corrections?status=open'),
     ]);
-    renderSettings(staffList, fixedCharges, corrections, computeDuesSummary(rentData.rows));
+    renderSettings(staffList, fixedCharges, corrections);
   } catch (e) {
     el.innerHTML = `<div class="card"><div class="empty-state-title">Couldn't load settings</div><div>${e.message}</div></div>`;
   }
 }
 
-function renderSettings(staffList, fixedCharges, corrections, duesList) {
+function renderSettings(staffList, fixedCharges, corrections) {
   state.staffList = staffList; // so openEditStaffModal can look a row up by id instead of threading every field through onclick
   const el = document.getElementById('screen-settings');
   el.innerHTML = `
@@ -130,8 +126,6 @@ function renderSettings(staffList, fixedCharges, corrections, duesList) {
       <div class="card-title">Logged in as</div>
       <div class="list-row"><div class="list-row-main"><div class="list-row-title">${escapeHtml(state.staff.name)}</div><div class="list-row-sub">Admin · sees all PGs</div></div></div>
     </div>
-
-    ${renderDuesSummaryCard(duesList)}
 
     ${corrections.length > 0 ? `
       <div class="card" style="border-color:var(--red);">

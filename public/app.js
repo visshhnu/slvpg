@@ -191,7 +191,17 @@ async function enterApp() {
   // Hide the PG switcher entirely when there's nothing to switch between.
   document.getElementById('pg-switcher').style.cursor = canSwitchPg() ? 'pointer' : 'default';
 
-  switchTab('dashboard');
+  // Land back on whichever tab was open before a refresh/reload, instead of
+  // always bouncing to Dashboard -- that "always resets to Home" behaviour
+  // was what looked like the page randomly navigating away on its own.
+  let lastTab = 'dashboard';
+  try {
+    const saved = localStorage.getItem('pg_last_tab');
+    if (saved && TAB_TITLES[saved] && (saved !== 'settings' || state.staff.role === 'admin' || state.staff.role === 'pg_manager')) {
+      lastTab = saved;
+    }
+  } catch {}
+  switchTab(lastTab);
 }
 
 // True for admin (sees every PG) or a staff/pg_manager account explicitly
@@ -246,6 +256,10 @@ const MENU_GROUP_TABS = ['reports', 'settings', 'menu'];
 
 function switchTab(tab) {
   state.currentTab = tab;
+  // Remembered across reloads so refreshing the page (or the browser
+  // restoring the tab) lands back where you were instead of always
+  // bouncing to Dashboard -- see enterApp() below, which reads this back.
+  try { localStorage.setItem('pg_last_tab', tab); } catch {}
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(`screen-${tab}`).classList.add('active');
   const navHighlight = MENU_GROUP_TABS.includes(tab) ? 'menu' : tab;
@@ -287,9 +301,18 @@ const MENU_ITEMS = [
   { tab: 'settings', icon: '⚙️', title: 'Settings', desc: TAB_SUBTITLES.settings },
 ];
 
-function loadMenu() {
+async function loadMenu() {
   const el = document.getElementById('screen-menu');
+  el.innerHTML = `<div class="card"><div class="empty-state">Loading…</div></div>`;
+
+  // computeDuesSummary/renderDuesSummaryCard live in settings.js -- reused
+  // here rather than duplicated, since Menu is now where this actually
+  // needs to be seen (previously buried a tap deeper inside Settings).
+  let duesList = [];
+  try { duesList = computeDuesSummary((await api('/rent')).rows); } catch {}
+
   el.innerHTML = `
+    ${renderDuesSummaryCard(duesList)}
     <div style="display:flex;flex-direction:column;gap:8px;">
       ${MENU_ITEMS.map(item => `
         <button onclick="switchTab('${item.tab}')" style="
