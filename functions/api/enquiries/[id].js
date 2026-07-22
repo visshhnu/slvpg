@@ -1,9 +1,13 @@
 // functions/api/enquiries/[id].js
-import { requireAuth, jsonResponse, unauthorized } from '../../_auth.js';
+import { requireAuth, jsonResponse, unauthorized, isPgAllowed } from '../../_auth.js';
 
 export async function onRequestPatch({ request, env, params }) {
   const session = await requireAuth(request, env);
   if (!session) return unauthorized();
+
+  const existing = await env.DB.prepare('SELECT pg_id FROM enquiries WHERE id = ?').bind(params.id).first();
+  if (!existing) return jsonResponse({ error: 'Not found' }, 404);
+  if (!isPgAllowed(session, existing.pg_id)) return unauthorized();
 
   const { status, notes } = await request.json();
   const allowed = ['new','contacted','converted','not_interested'];

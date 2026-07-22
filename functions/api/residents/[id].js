@@ -79,12 +79,22 @@ export async function onRequestPatch({ request, env, params }) {
   if (!session) return unauthorized();
 
   try {
+    // res.pg_id (from res.*) is this resident's own PG, set once at creation
+    // and never dependent on their current bed -- room_pg_id is aliased
+    // separately so it can't silently overwrite res.pg_id in the result
+    // object (same column name from both tables = last one wins in a plain
+    // SELECT res.*, r.pg_id). That collision used to make existing.pg_id
+    // resolve to NULL for any vacated resident (no bed_id -> LEFT JOIN
+    // through beds/rooms produces nothing), which would have made both the
+    // ownership check below AND the advance-payment insert further down
+    // silently use/write a NULL pg_id for anyone vacated.
     const existing = await env.DB.prepare(`
-      SELECT res.*, r.pg_id FROM residents res
+      SELECT res.*, r.pg_id as room_pg_id FROM residents res
       LEFT JOIN beds b ON b.id = res.bed_id LEFT JOIN rooms r ON r.id = b.room_id
       WHERE res.id = ?
     `).bind(params.id).first();
     if (!existing) return jsonResponse({ error: 'Not found' }, 404);
+    if (!isPgAllowed(session, existing.pg_id)) return unauthorized();
 
     const body = await request.json();
     const allowedFields = [

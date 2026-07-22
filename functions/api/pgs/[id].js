@@ -1,10 +1,10 @@
 // functions/api/pgs/[id].js
-import { requireAuth, jsonResponse, unauthorized } from '../../_auth.js';
+import { requireAuth, jsonResponse, unauthorized, isPgAllowed } from '../../_auth.js';
 
 export async function onRequestPatch({ request, env, params }) {
   const session = await requireAuth(request, env);
   if (!session) return unauthorized();
-  if (session.role !== 'admin' && session.pgId !== parseInt(params.id, 10)) {
+  if (session.role !== 'admin' && !isPgAllowed(session, parseInt(params.id, 10))) {
     return unauthorized();
   }
 

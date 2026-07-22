@@ -1,11 +1,15 @@
 // functions/api/room-facilities/[id].js
 // GET/PATCH a specific facility item; POST adds a new item to a room
-import { requireAuth, jsonResponse, unauthorized } from '../../_auth.js';
+import { requireAuth, jsonResponse, unauthorized, isPgAllowed } from '../../_auth.js';
 
 export async function onRequestPost({ request, env, params }) {
   // params.id here = room_id (adding item to a room)
   const session = await requireAuth(request, env);
   if (!session) return unauthorized();
+
+  const room = await env.DB.prepare('SELECT pg_id FROM rooms WHERE id = ?').bind(params.id).first();
+  if (!room) return jsonResponse({ error: 'Room not found' }, 404);
+  if (!isPgAllowed(session, room.pg_id)) return unauthorized();
 
   const { item_name, quantity, condition, notes } = await request.json();
   if (!item_name) return jsonResponse({ error: 'Item name is required' }, 400);
@@ -21,6 +25,12 @@ export async function onRequestPost({ request, env, params }) {
 export async function onRequestPatch({ request, env, params }) {
   const session = await requireAuth(request, env);
   if (!session) return unauthorized();
+
+  const existing = await env.DB.prepare(
+    'SELECT r.pg_id FROM room_facilities rf JOIN rooms r ON r.id = rf.room_id WHERE rf.id = ?'
+  ).bind(params.id).first();
+  if (!existing) return jsonResponse({ error: 'Not found' }, 404);
+  if (!isPgAllowed(session, existing.pg_id)) return unauthorized();
 
   const { condition, quantity, notes } = await request.json();
   const updates = [];

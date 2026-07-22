@@ -1,5 +1,5 @@
 // functions/api/corrections/[id].js
-import { requireAuth, jsonResponse, unauthorized } from '../../_auth.js';
+import { requireAuth, jsonResponse, unauthorized, isPgAllowed } from '../../_auth.js';
 import { recomputeResidentLedger } from '../../_ledger.js';
 
 export async function onRequestPatch({ request, env, params }) {
@@ -24,8 +24,8 @@ export async function onRequestPatch({ request, env, params }) {
   const correction = await env.DB.prepare('SELECT * FROM corrections WHERE id = ?').bind(params.id).first();
   if (!correction) return jsonResponse({ error: 'Correction not found' }, 404);
 
-  // pg_manager scope check: they can only resolve corrections for their own PG
-  if (session.role === 'pg_manager' && session.pgId !== correction.pg_id) {
+  // pg_manager scope check: they can only resolve corrections for a PG they're assigned to
+  if (session.role === 'pg_manager' && !isPgAllowed(session, correction.pg_id)) {
     return jsonResponse({ error: 'You can only manage corrections for your own PG.' }, 403);
   }
 

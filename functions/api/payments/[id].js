@@ -1,5 +1,5 @@
 // functions/api/payments/[id].js
-import { requireAuth, jsonResponse, unauthorized } from '../../_auth.js';
+import { requireAuth, jsonResponse, unauthorized, isPgAllowed } from '../../_auth.js';
 import { recomputeResidentLedger } from '../../_ledger.js';
 
 export async function onRequestPatch({ request, env, params }) {
@@ -10,7 +10,7 @@ export async function onRequestPatch({ request, env, params }) {
   if (!payment) return jsonResponse({ error: 'Not found' }, 404);
 
   const canEdit = session.role === 'admin'
-    || (session.role === 'pg_manager' && session.pgId === payment.pg_id);
+    || (session.role === 'pg_manager' && isPgAllowed(session, payment.pg_id));
   if (!canEdit) {
     return jsonResponse({ error: 'Only an admin or PG manager can edit a payment. Use "Flag a Correction" instead.' }, 403);
   }
@@ -55,7 +55,7 @@ export async function onRequestDelete({ request, env, params }) {
   if (!payment) return jsonResponse({ error: 'Not found' }, 404);
 
   const canDelete = session.role === 'admin'
-    || (session.role === 'pg_manager' && session.pgId === payment.pg_id);
+    || (session.role === 'pg_manager' && isPgAllowed(session, payment.pg_id));
   if (!canDelete) {
     return jsonResponse({ error: 'Only an admin or PG manager can delete a payment. Use "Flag a Correction" instead.' }, 403);
   }
