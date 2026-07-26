@@ -409,10 +409,10 @@ async function openEditResidentModal(residentId) {
     <label>Custom advance for this bed <span style="font-weight:400;color:var(--ink-soft);">(leave blank to use room's default advance)</span></label>
     <input id="er-custom-advance" type="number" value="${r.custom_advance != null ? r.custom_advance : ''}" placeholder="Room default: ${fmtMoney(r.advance_deposit || 0)}">
 
-    <label>First month rent due <span style="font-weight:400;color:var(--ink-soft);">(only matters while still in their join month)</span></label>
+    <label>Rent Billing Cycle <span style="font-weight:400;color:var(--ink-soft);">(changing this only affects future months, not already-billed ones)</span></label>
     <select id="er-due-option">
-      <option value="cycle" ${r.first_month_due_option !== 'join_date' ? 'selected' : ''}>Regular cycle — 5th, or month-end if that's already passed</option>
-      <option value="join_date" ${r.first_month_due_option === 'join_date' ? 'selected' : ''}>On their join date</option>
+      <option value="cycle" ${r.first_month_due_option !== 'join_date' ? 'selected' : ''}>Regular — calendar month, prorated first month, due 5th (or month-end if already passed)</option>
+      <option value="join_date" ${r.first_month_due_option === 'join_date' ? 'selected' : ''}>Anniversary — full rent every cycle (never prorated), due on their join-date each month</option>
     </select>
 
     <div class="card" style="margin:14px 0;">
@@ -1044,10 +1044,10 @@ async function openAddResidentModal(preselectedBedId) {
     <input id="res-custom-rent" type="number" placeholder="Leave blank for room default">
     <label>Custom Advance for this bed <span style="font-weight:400;color:var(--ink-soft);">(leave blank to use room's default advance)</span></label>
     <input id="res-custom-advance" type="number" placeholder="Leave blank for room default">
-    <label>First Month Rent Due <span style="font-weight:400;color:var(--ink-soft);">(only applies if joining mid-month)</span></label>
+    <label>Rent Billing Cycle</label>
     <select id="res-due-option">
-      <option value="cycle">Regular cycle — 5th, or month-end if that's already passed</option>
-      <option value="join_date">On their join date</option>
+      <option value="cycle">Regular — calendar month, prorated first month, due 5th (or month-end if already passed)</option>
+      <option value="join_date">Anniversary — full rent every cycle (never prorated), due on their join-date each month</option>
     </select>
     <label>Occupation</label>
     <select id="res-occupation">

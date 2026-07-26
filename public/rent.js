@@ -276,9 +276,13 @@ function renderRentCard(row, month) {
   const adv = row.advance; // server-computed by functions/_ledger.js -- same figure Room view and Residents tab use
   const advExpected = adv.expected || 0;
   const totalOutstanding = Math.max(0, balance) + Math.max(0, adv.balance);
-  // A resident's first billed month is pro-rated (see functions/_ledger.js) --
-  // flagging it here so a lower-than-usual amount doesn't read as a mistake.
-  const isProratedMonth = !notDue && month && row.join_date && row.join_date.slice(0, 7) === month
+  // A resident's first billed month is pro-rated under the Regular cycle
+  // (see functions/_ledger.js) -- flagging it here so a lower-than-usual
+  // amount doesn't read as a mistake. NOT true for the Anniversary cycle
+  // (first_month_due_option === 'join_date'), which is never prorated --
+  // full rent every cycle, including the first.
+  const isProratedMonth = !notDue && month && row.first_month_due_option !== 'join_date'
+    && row.join_date && row.join_date.slice(0, 7) === month
     && parseInt(row.join_date.slice(8, 10), 10) > 1;
 
   return `

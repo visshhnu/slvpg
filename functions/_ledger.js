@@ -55,38 +55,50 @@ async function queryWithColumnFallback(env, primarySql, fallbackSql, binds, meth
 //    called for a future month (e.g. Rent tab paged forward) doesn't skip
 //    a resident who will have joined by then just because today hasn't
 //    caught up to that month yet.
-// A resident's very first billed month is charged only for the days they
-// actually stayed (join date through month-end), not the full month --
-// joining on the 20th shouldn't cost the same as joining on the 1st. Every
-// month after that is unaffected: full rent, normal 5th-of-month due date.
+// dueOption picks between two genuinely different billing cycles, not just
+// two different due dates for the same amount:
 //
-// The due date for that first partial month also can't stay hardcoded to
-// the 5th -- for anyone joining after the 5th, that date is already in the
-// past, so their very first rent entry would read "overdue" before they'd
-// even moved in. By default it falls back to the last day of that month
-// instead, which also happens to line up with when most residents actually
-// get paid -- but this is a per-resident preference (dueOption), not a fixed
-// rule: some residents would rather pay on their own join-date anniversary.
-// dueOption: 'join_date' = due on the day they joined. Anything else (null/
-// 'cycle') = the regular cycle described above. Only ever affects the join
-// month; every month after reverts to the normal 5th regardless of dueOption.
+// 'cycle' (default) -- calendar-month billing, like everyone else. The
+// resident's first billed month is prorated for days actually stayed (join
+// date through month-end) -- joining on the 20th shouldn't cost the same as
+// joining on the 1st. Due by the 5th, or month-end if the 5th has already
+// passed by the time they joined (otherwise their very first rent entry
+// would read "overdue" before they'd even moved in). Every month after
+// that: full rent, normal 5th-of-month due date.
+//
+// 'join_date' -- anniversary billing, not aligned to the calendar month at
+// all. NEVER prorated: every cycle, including the very first one, is the
+// full monthly rent, due on the resident's own join-day-of-month (clamped
+// to the last day of shorter months, e.g. a 31st joiner is due the 28th in
+// February). Someone joining the 25th owes a full month immediately, due
+// the 25th, then owes another full month on the 25th of every month after
+// -- this is a resident who explicitly wants to pay for a full month
+// upfront on their own schedule rather than share the building's calendar-
+// month cycle, not someone who just wants a different due date on the same
+// prorated first bill.
 function computeMonthRentDetails(fullAmount, joinDate, month, dueOption) {
   const standardDueDate = `${month}-05`;
   const isJoinMonth = joinDate && joinDate.slice(0, 7) === month;
+  const [y, m] = month.split('-').map(Number);
+  const totalDaysInMonth = new Date(y, m, 0).getDate(); // day 0 of next month = last day of this one
+
+  if (dueOption === 'join_date') {
+    const joinDay = parseInt(joinDate.slice(8, 10), 10);
+    const dueDay = Math.min(joinDay, totalDaysInMonth);
+    const dueDate = `${month}-${String(dueDay).padStart(2, '0')}`;
+    return { amount: fullAmount, dueDate, isJoinMonth };
+  }
+
   if (!isJoinMonth) {
     return { amount: fullAmount, dueDate: standardDueDate, isJoinMonth };
   }
 
-  const [y, m] = month.split('-').map(Number);
-  const totalDays = new Date(y, m, 0).getDate(); // day 0 of next month = last day of this one
   const joinDay = parseInt(joinDate.slice(8, 10), 10);
-  const daysStayed = totalDays - joinDay + 1;
-  const amount = Math.round(fullAmount * daysStayed / totalDays);
-  const dueDate = dueOption === 'join_date'
-    ? joinDate
-    : joinDate > standardDueDate
-      ? `${month}-${String(totalDays).padStart(2, '0')}`
-      : standardDueDate;
+  const daysStayed = totalDaysInMonth - joinDay + 1;
+  const amount = Math.round(fullAmount * daysStayed / totalDaysInMonth);
+  const dueDate = joinDate > standardDueDate
+    ? `${month}-${String(totalDaysInMonth).padStart(2, '0')}`
+    : standardDueDate;
 
   return { amount, dueDate, isJoinMonth };
 }

@@ -30,6 +30,7 @@ export async function onRequestGet({ request, env }) {
         rl.id, rl.amount_due, rl.amount_paid, rl.status, rl.due_date,
         res.id as resident_id, res.name as resident_name, res.phone as resident_phone,
         res.status as resident_status, res.advance_paid, res.join_date, res.custom_advance,
+        res.first_month_due_option,
         r.floor, r.room_number, r.advance_deposit, r.refundable_amount,
         b.bed_label
       FROM residents res
