@@ -97,13 +97,20 @@ export async function onRequestPatch({ request, env, params }) {
     if (!isPgAllowed(session, existing.pg_id)) return unauthorized();
 
     const body = await request.json();
+    // advance_paid is deliberately NOT in this list. It must only ever
+    // change via a real payment through POST /payments
+    // (recomputeResidentLedger) -- a direct edit here used to let someone
+    // "fix" it by typing a smaller number, which silently reverted itself
+    // the next time anything else touched that resident's payments (the
+    // underlying duplicate/incorrect payment row was never actually voided
+    // or deleted, so recompute would just put the wrong number back).
     const allowedFields = [
       'name', 'photo_url', 'phone', 'alt_phone', 'aadhaar_number', 'aadhaar_photo_url', 'aadhaar_back_photo_url',
       'pan_number', 'pan_photo_url', 'id_proof_type', 'id_proof_number', 'id_proof_photo_url', 'passport_photo_url',
       'occupation', 'company_or_college', 'emergency_contact_name', 'emergency_contact_phone',
       'status', 'notice_date', 'planned_vacate_date', 'actual_vacate_date',
       'room_inspection_done', 'room_inspection_notes', 'deductions', 'deduction_reason',
-      'refund_paid', 'refund_paid_date', 'notes', 'advance_paid', 'bed_id', 'join_date',
+      'refund_paid', 'refund_paid_date', 'notes', 'bed_id', 'join_date',
       'agreement_signed', 'agreement_url', 'police_verification_status', 'custom_rent', 'custom_advance',
       'first_month_due_option'
     ];
@@ -202,22 +209,6 @@ export async function onRequestPatch({ request, env, params }) {
     // due/overpaid figures" gap.
     if ('custom_rent' in body || 'bed_id' in body || 'first_month_due_option' in body) {
       await syncCurrentMonthRent(env, params.id);
-    }
-
-    // Same fix as resident creation: if advance_paid was increased directly
-    // from this edit form (rather than through the Rent tab's "+ Add
-    // instalment" flow), log the difference as a real payments row too, dated
-    // today, so it isn't invisible money in the dashboard's period totals.
-    if ('advance_paid' in body) {
-      const newAdvance = Number(body.advance_paid) || 0;
-      const oldAdvance = Number(existing.advance_paid) || 0;
-      const delta = newAdvance - oldAdvance;
-      if (delta > 0) {
-        await env.DB.prepare(`
-          INSERT INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note)
-          VALUES (?, ?, ?, ?, 'cash', 'advance', ?, 'Advance updated via edit')
-        `).bind(existing.pg_id, params.id, delta, new Date().toISOString().slice(0, 10), session.name).run();
-      }
     }
 
     return jsonResponse({ success: true });

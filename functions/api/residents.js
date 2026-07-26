@@ -93,7 +93,7 @@ export async function onRequestPost({ request, env }) {
       name, photo_url, phone, alt_phone, aadhaar_number, aadhaar_photo_url, aadhaar_back_photo_url,
       pan_number, pan_photo_url, id_proof_type, id_proof_number, id_proof_photo_url, passport_photo_url,
       occupation, company_or_college, emergency_contact_name, emergency_contact_phone,
-      bed_id, join_date, advance_paid, agreement_signed, police_verification_status, notes,
+      bed_id, join_date, agreement_signed, police_verification_status, notes,
       custom_rent, custom_advance, first_month_due_option
     } = body;
 
@@ -123,7 +123,15 @@ export async function onRequestPost({ request, env }) {
       ['occupation', occupation || null], ['company_or_college', company_or_college || null],
       ['emergency_contact_name', emergency_contact_name || null],
       ['emergency_contact_phone', emergency_contact_phone || null],
-      ['bed_id', bed_id], ['join_date', join_date], ['advance_paid', advance_paid || 0],
+      ['bed_id', bed_id], ['join_date', join_date],
+      // advance_paid is deliberately NOT settable here -- no money has
+      // actually been collected at the moment a resident profile is
+      // created. It only ever changes via a real payment through
+      // POST /payments (recomputeResidentLedger), never a raw number
+      // written directly onto this record -- see the PATCH handler in
+      // residents/[id].js for why that used to be a real bug (a "fix"
+      // typed here could silently revert itself later with no payment
+      // trail to show for it).
       ['agreement_signed', agreement_signed ? 1 : 0],
       ['police_verification_status', police_verification_status || 'pending'],
       ['notes', notes || null],
@@ -172,19 +180,6 @@ export async function onRequestPost({ request, env }) {
     }
 
     const newResidentId = result.meta.last_row_id;
-
-    // If an initial advance was entered right here on the Add Resident form,
-    // it was real money received — log it as a proper payments row too
-    // (payment_date = join_date), not just a number on the resident record.
-    // Without this, the dashboard's period filters (Today/7 Days/etc.) never
-    // see this money as "collected" — it would only ever show up as part of
-    // a number nobody can trace back to an actual transaction.
-    if (advance_paid && advance_paid > 0) {
-      await env.DB.prepare(`
-        INSERT INTO payments (pg_id, resident_id, amount, payment_date, payment_mode, payment_type, collected_by, reference_note)
-        VALUES (?, ?, ?, ?, 'cash', 'advance', ?, 'Initial advance at move-in')
-      `).bind(pgId, newResidentId, advance_paid, join_date, session.name).run();
-    }
 
     return jsonResponse({ success: true, id: newResidentId });
   } catch (e) {

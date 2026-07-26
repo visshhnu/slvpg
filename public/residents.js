@@ -1039,8 +1039,7 @@ async function openAddResidentModal(preselectedBedId) {
     </select>
     <label>Join Date</label>
     <input id="res-join" type="date" value="${today}">
-    <label>Advance Paid</label>
-    <input id="res-advance" type="number" placeholder="0">
+    <p style="font-size:11.5px;color:var(--ink-soft);margin:2px 0 10px;">Advance is collected as a separate step right after you save this profile — nothing here records a payment.</p>
     <label>Custom Rent for this bed <span style="font-weight:400;color:var(--ink-soft);">(leave blank to use room's default rent)</span></label>
     <input id="res-custom-rent" type="number" placeholder="Leave blank for room default">
     <label>Custom Advance for this bed <span style="font-weight:400;color:var(--ink-soft);">(leave blank to use room's default advance)</span></label>
@@ -1111,7 +1110,6 @@ async function submitAddResident() {
   const pan_number = document.getElementById('res-pan').value.trim();
   const bed_id = parseInt(document.getElementById('res-bed').value, 10);
   const join_date = document.getElementById('res-join').value;
-  const advance_paid = parseInt(document.getElementById('res-advance').value, 10) || 0;
   const occupation = document.getElementById('res-occupation').value;
   const company_or_college = document.getElementById('res-company').value.trim();
   const emergency_contact_name = document.getElementById('res-emergency-name').value.trim();
@@ -1133,7 +1131,7 @@ async function submitAddResident() {
     const result = await api('/residents', {
       method: 'POST',
       body: JSON.stringify({
-        name, phone, aadhaar_number, pan_number, bed_id, join_date, advance_paid, occupation,
+        name, phone, aadhaar_number, pan_number, bed_id, join_date, occupation,
         company_or_college, emergency_contact_name, emergency_contact_phone,
         police_verification_status, agreement_signed, custom_rent, custom_advance, first_month_due_option,
         aadhaar_photo_url: pendingResidentDocs.aadhaar_photo_url,
@@ -1143,9 +1141,25 @@ async function submitAddResident() {
       }),
     });
     closeModal();
-    showToast('Resident added. You can generate their check-in receipt from their profile.', 'success');
+    showToast('Resident added.', 'success');
     loadResidents();
     state.rooms = await api('/rooms'); // refresh occupancy cache
+
+    // Advance is now ALWAYS a real, separate payment transaction -- never a
+    // number typed into this form and silently written straight onto the
+    // resident record. If they owe an advance, immediately offer the same
+    // "Collect advance" modal the Rent tab uses (openAdvanceModal, rent.js),
+    // so recording it is still one smooth motion right after creating the
+    // profile -- just through the real payments endpoint, which is the only
+    // thing allowed to touch a balance, instead of a parallel hidden path.
+    try {
+      const fresh = await api(`/residents/${result.id}`);
+      if (fresh.advance && fresh.advance.expected > 0) {
+        openAdvanceModal(result.id, name, fresh.advance.expected);
+      } else {
+        showToast('You can generate their check-in receipt from their profile.', 'success');
+      }
+    } catch {}
   } catch (e) {
     showToast(e.message, 'error');
   }
