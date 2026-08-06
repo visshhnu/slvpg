@@ -149,29 +149,44 @@ function buildPaymentReceiptPdf(p, pg) {
   y += 18;
 
   if (pg && pg.address) {
+    // splitTextToSize wraps to an array of lines -- doc.text() itself wraps
+    // visually when given maxWidth, but does NOT advance the y-cursor for
+    // the extra lines, so a long address silently overlapped whatever was
+    // printed next unless the line count is accounted for explicitly here.
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.setTextColor(120);
-    doc.text(pg.address, pageWidth / 2, y, { align: 'center', maxWidth: pageWidth - margin * 2 });
-    y += 16;
+    const addressLines = doc.splitTextToSize(pg.address, pageWidth - margin * 2);
+    addressLines.forEach(line => {
+      doc.text(line, pageWidth / 2, y, { align: 'center' });
+      y += 13;
+    });
+    y += 3;
   }
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(11);
   doc.setTextColor(100);
-  doc.text(`Payment Receipt · ${receiptNo}`, pageWidth / 2, y, { align: 'center' });
+  doc.text(`Payment Receipt - ${receiptNo}`, pageWidth / 2, y, { align: 'center' });
   y += 26;
 
   doc.setDrawColor(220);
   doc.line(margin, y, pageWidth - margin, y);
   y += 18;
 
+  // jsPDF's built-in fonts (helvetica/times/courier) only support WinAnsi
+  // encoding, which does NOT include ₹ (U+20B9) -- it silently renders as a
+  // broken/mangled glyph instead of throwing, which is why this needed a
+  // separate PDF-safe formatter rather than reusing fmtMoney (fine on-screen,
+  // since HTML text rendering isn't limited to WinAnsi).
+  const pdfMoney = n => `Rs. ${(n || 0).toLocaleString('en-IN')}`;
+
   const rows = [
     ['Resident', p.resident_name || ''],
     ['Phone', p.phone || '—'],
     ...(roomLabel ? [['Room', roomLabel]] : []),
     ['Type', PAYMENT_TYPE_LABELS[p.payment_type] || p.payment_type],
-    ['Amount', `${isRefund ? '-' : '+'}${fmtMoney(Math.abs(p.amount))}`],
+    ['Amount', `${isRefund ? '-' : '+'}${pdfMoney(Math.abs(p.amount))}`],
     ['Date', fmtDate(p.payment_date)],
     ['Mode', p.payment_mode || 'cash'],
     ...(p.collected_by ? [[isRefund ? 'Issued by' : 'Collected by', p.collected_by]] : []),

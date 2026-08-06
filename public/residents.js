@@ -643,15 +643,21 @@ function buildReceiptPdf(r, pg) {
   doc.line(margin, y, pageWidth - margin, y);
   y += 18;
 
+  // jsPDF's built-in fonts (helvetica/times/courier) only support WinAnsi
+  // encoding, which does NOT include ₹ (U+20B9) -- it silently renders as a
+  // broken/mangled glyph instead of throwing, so this can't reuse fmtMoney
+  // (fine on-screen, since HTML text rendering isn't limited to WinAnsi).
+  const pdfMoney = n => `Rs. ${(n || 0).toLocaleString('en-IN')}`;
+
   const rows = [
     ['Resident', r.resident_name],
     ['Phone', r.resident_phone || '—'],
     ['Room', `${r.room_floor} ${r.room_number}-${r.bed_label} (${sharingLabelFromType(r.sharing_type)})`],
     ['Join Date', fmtDate(r.join_date)],
-    ['Monthly Rent', fmtMoney(r.monthly_rent)],
-    ['Advance Deposit (full)', fmtMoney(r.advance_deposit)],
-    ['Refundable Amount', fmtMoney(r.refundable_amount)],
-    ['Advance Paid at Check-in', fmtMoney(r.advance_paid_now)],
+    ['Monthly Rent', pdfMoney(r.monthly_rent)],
+    ['Advance Deposit (full)', pdfMoney(r.advance_deposit)],
+    ['Refundable Amount', pdfMoney(r.refundable_amount)],
+    ['Advance Paid at Check-in', pdfMoney(r.advance_paid_now)],
   ];
 
   doc.setFontSize(11);
