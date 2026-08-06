@@ -18,7 +18,16 @@ export async function onRequestPatch({ request, env, params }) {
   const { amount, payment_mode, payment_type, payment_date, reference_note, status } = await request.json();
   const updates = [];
   const binds = [];
-  if (amount !== undefined) { updates.push('amount = ?'); binds.push(amount); }
+  // Refunds are stored as NEGATIVE amounts (see payments.js POST) so a plain
+  // SUM() elsewhere nets them out correctly -- the client always sends/shows
+  // a plain positive number, so the sign has to be applied here too,
+  // against whichever type this payment WILL be after this edit (the new
+  // type if one was sent, otherwise its existing type).
+  const effectiveType = payment_type !== undefined ? payment_type : payment.payment_type;
+  if (amount !== undefined) {
+    const storedAmount = effectiveType === 'refund' ? -Math.abs(amount) : Math.abs(amount);
+    updates.push('amount = ?'); binds.push(storedAmount);
+  }
   if (payment_mode !== undefined) { updates.push('payment_mode = ?'); binds.push(payment_mode); }
   if (payment_type !== undefined) { updates.push('payment_type = ?'); binds.push(payment_type); }
   if (payment_date !== undefined) { updates.push('payment_date = ?'); binds.push(payment_date); }

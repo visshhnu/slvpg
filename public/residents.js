@@ -179,11 +179,13 @@ function renderResidentCard(r) {
 }
 
 let currentOpenResidentId = null;
+let currentOpenResident = null; // so payment-receipt lookups don't need a separate fetch
 
 async function openResidentDetail(id) {
   currentOpenResidentId = id;
   try {
     const r = await api(`/residents/${id}`);
+    currentOpenResident = r;
     showResidentDetailModal(r);
   } catch (e) {
     showToast(e.message, 'error');
@@ -212,11 +214,18 @@ function renderResidentAccountingCard(r) {
     <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Advance due</div></div><div style="${adv.balance > 0 ? 'color:var(--red,#B23B3B);font-weight:600;' : ''}">${adv.balance > 0 ? fmtMoney(adv.balance) : adv.balance < 0 ? `${fmtMoney(-adv.balance)} overpaid` : fmtMoney(0)}</div></div>
   ` : '';
 
+  // refund_paid is derived server-side from real 'refund' payments (see
+  // functions/_ledger.js) -- never a raw editable number.
+  const refundRow = r.refund_paid > 0 ? `
+    <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Refund paid</div></div><div style="color:var(--red,#B23B3B);">-${fmtMoney(r.refund_paid)}</div></div>
+  ` : '';
+
   return `
     <div class="card" style="margin-bottom:12px;">
       <div class="card-title">Accounting — ${monthLabel(new Date().toISOString().slice(0,7))}</div>
       ${rentRows}
       ${advRows}
+      ${refundRow}
     </div>`;
 }
 
@@ -290,6 +299,7 @@ function showResidentDetailModal(r) {
       <button class="btn btn-outline" style="margin-bottom:10px;width:100%;" onclick="cancelVacateNotice(${r.id})">Cancel Vacate Notice — Staying</button>
     ` : ''}
     ${r.status === 'vacated' ? `
+      <button class="btn btn-outline" style="margin-bottom:10px;width:100%;" onclick="openRecordRefundModal(${r.id})">Record Refund</button>
       <button class="btn btn-outline" style="margin-bottom:10px;width:100%;" onclick="openUndoVacateForm(${r.id})">Undo Vacate — Bring Back</button>
     ` : ''}
 
@@ -298,10 +308,11 @@ function showResidentDetailModal(r) {
       r.payments.slice(0, 10).map(p => `
         <div class="list-row">
           <div class="list-row-main">
-            <div class="list-row-title">${fmtMoney(p.amount)} <span style="color:var(--ink-soft);font-weight:500;font-size:12px;">(${p.payment_type}${p.ledger_month ? ` — ${monthLabel(p.ledger_month)}` : ''})</span></div>
+            <div class="list-row-title">${paymentAmountLabel(p)} <span style="color:var(--ink-soft);font-weight:500;font-size:12px;">(${p.payment_type}${p.ledger_month ? ` — ${monthLabel(p.ledger_month)}` : ''})</span></div>
             <div class="list-row-sub">${fmtDate(p.payment_date)} · ${p.payment_mode} · by ${escapeHtml(p.collected_by || '—')}</div>
           </div>
           <div style="display:flex;gap:6px;">
+            <button class="btn btn-outline btn-sm" style="font-size:11px;" onclick="openPaymentReceiptModal(${p.id})">Receipt</button>
             ${state.staff.role === 'admin' || state.staff.role === 'pg_manager'
               ? `<button class="btn btn-outline btn-sm" style="font-size:11px;" onclick="openEditPaymentModal(${p.id}, ${p.amount}, '${p.payment_type}', '${p.payment_date}', '${p.payment_mode || 'cash'}')">Edit</button>`
               : `<button class="btn btn-outline btn-sm" onclick="openFlagCorrectionModal('payment', ${p.id})">Flag Issue</button>`
@@ -725,8 +736,29 @@ async function shareReceiptPdf() {
   }
 }
 
+// ---- Payment receipt (any single rent/advance/refund transaction) ----
+// renderPaymentReceipt/printPaymentReceipt live in app.js -- shared with
+// reports.js, which has full resident context flattened onto each payment
+// row already (see functions/api/payments.js) instead of a separate
+// resident object to merge in.
+function openPaymentReceiptModal(paymentId) {
+  const r = currentOpenResident;
+  const p = r && r.payments ? r.payments.find(x => x.id === paymentId) : null;
+  if (!p) { showToast('Could not find that payment.', 'error'); return; }
+  renderPaymentReceipt({
+    ...p,
+    resident_name: r.name, phone: r.phone,
+    floor: r.floor, room_number: r.room_number, bed_label: r.bed_label,
+  });
+}
+
 // ---- Edit payment (admin / pg_manager only) ----
 function openEditPaymentModal(paymentId, amount, type, date, mode) {
+  // Refunds are stored as negative amounts (see payments.js) so plain SUM()s
+  // elsewhere net them out correctly -- but this form always shows/sends a
+  // plain positive number regardless of type; the backend re-applies the
+  // correct sign against whatever type the payment ends up as after saving.
+  amount = Math.abs(amount);
   openModal(`
     <div class="modal-header">
       <div class="modal-title">Edit Payment</div>
@@ -901,27 +933,72 @@ function confirmMarkVacated(residentId) {
       <div class="modal-title">Confirm Vacate</div>
       <button class="modal-close" onclick="closeModal()">✕</button>
     </div>
-    <p style="margin-bottom:16px;">This frees up their bed for a new resident. Record any refund paid below (optional).</p>
-    <label>Refund Amount Paid (if any)</label>
-    <input id="vac-refund-amount" type="number" placeholder="0">
+    <p style="margin-bottom:16px;">This frees up their bed for a new resident. If a refund is owed, record it separately afterward from their profile — it can be split across multiple payments as deductions get finalized, not just a single one-time amount here.</p>
     <button class="btn btn-danger" onclick="submitMarkVacated(${residentId})">Confirm — Mark Vacated</button>
   `);
 }
 
 async function submitMarkVacated(residentId) {
-  const refund = parseInt(document.getElementById('vac-refund-amount').value, 10) || 0;
   try {
     await api(`/residents/${residentId}`, {
       method: 'PATCH',
-      body: JSON.stringify({
-        status: 'vacated',
-        refund_paid: refund,
-        refund_paid_date: refund > 0 ? new Date().toISOString().slice(0, 10) : null,
-      }),
+      body: JSON.stringify({ status: 'vacated' }),
     });
     closeModal();
     showToast('Resident marked as vacated.', 'success');
     loadResidents();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+// ---- Record refund (a real, repeatable payment transaction -- see
+// functions/api/payments.js; never a raw number on the resident record) ----
+function openRecordRefundModal(residentId) {
+  const today = new Date().toISOString().slice(0, 10);
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Record Refund</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:12px;">Money being returned to this resident (e.g. security deposit, after any deductions). This is a real transaction, not a check-in receipt detail — record it again here any time, e.g. if it's paid in more than one instalment.</p>
+    <label>Refund Amount</label>
+    <input id="refund-amount" type="number" placeholder="0">
+    <label>Date</label>
+    <input id="refund-date" type="date" value="${today}" max="${today}">
+    <label>Payment mode</label>
+    <select id="refund-mode">
+      <option value="cash">Cash</option>
+      <option value="upi">UPI</option>
+      <option value="bank_transfer">Bank transfer</option>
+    </select>
+    <label>Note (optional)</label>
+    <input id="refund-note" placeholder="e.g. Deposit refund after ₹2,000 damage deduction">
+    <button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="submitRecordRefund(${residentId})">Save Refund</button>
+  `);
+}
+
+async function submitRecordRefund(residentId) {
+  const amount = parseInt(document.getElementById('refund-amount').value, 10);
+  const payment_mode = document.getElementById('refund-mode').value;
+  const payment_date = document.getElementById('refund-date').value;
+  const reference_note = document.getElementById('refund-note').value.trim();
+
+  if (!amount || amount <= 0) {
+    showToast('Enter a valid refund amount.', 'error');
+    return;
+  }
+  try {
+    await api('/payments', {
+      method: 'POST',
+      body: JSON.stringify({
+        resident_id: residentId, amount, payment_mode,
+        payment_type: 'refund', reference_note, payment_date,
+      }),
+    });
+    closeModal();
+    showToast('Refund recorded.', 'success');
+    await refreshAfterPaymentChange();
   } catch (e) {
     showToast(e.message, 'error');
   }
@@ -989,8 +1066,6 @@ async function submitUndoVacate(residentId) {
         actual_vacate_date: null,
         notice_date: null,
         planned_vacate_date: null,
-        refund_paid: null,
-        refund_paid_date: null,
         deductions: null,
         deduction_reason: null,
         room_inspection_done: false,

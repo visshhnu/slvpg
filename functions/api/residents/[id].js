@@ -97,10 +97,10 @@ export async function onRequestPatch({ request, env, params }) {
     if (!isPgAllowed(session, existing.pg_id)) return unauthorized();
 
     const body = await request.json();
-    // advance_paid is deliberately NOT in this list. It must only ever
-    // change via a real payment through POST /payments
+    // advance_paid and refund_paid are deliberately NOT in this list. Both
+    // must only ever change via a real payment through POST /payments
     // (recomputeResidentLedger) -- a direct edit here used to let someone
-    // "fix" it by typing a smaller number, which silently reverted itself
+    // "fix" one by typing a smaller number, which silently reverted itself
     // the next time anything else touched that resident's payments (the
     // underlying duplicate/incorrect payment row was never actually voided
     // or deleted, so recompute would just put the wrong number back).
@@ -110,7 +110,7 @@ export async function onRequestPatch({ request, env, params }) {
       'occupation', 'company_or_college', 'emergency_contact_name', 'emergency_contact_phone',
       'status', 'notice_date', 'planned_vacate_date', 'actual_vacate_date',
       'room_inspection_done', 'room_inspection_notes', 'deductions', 'deduction_reason',
-      'refund_paid', 'refund_paid_date', 'notes', 'bed_id', 'join_date',
+      'notes', 'bed_id', 'join_date',
       'agreement_signed', 'agreement_url', 'police_verification_status', 'custom_rent', 'custom_advance',
       'first_month_due_option'
     ];

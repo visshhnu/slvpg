@@ -22,13 +22,20 @@ export async function onRequestPost({ request, env }) {
   const today = new Date().toISOString().slice(0, 10);
   const effectiveDate = payment_date && /^\d{4}-\d{2}-\d{2}$/.test(payment_date) ? payment_date : today;
 
+  // A refund is money leaving the PG -- the opposite direction from rent/
+  // advance. Stored as a NEGATIVE amount so a plain SUM() anywhere else in
+  // the app (Reports' payment totals, etc.) nets it out correctly on its
+  // own, without every summing site needing to know about payment_type.
+  // The client still sends a plain positive "how much to refund" number.
+  const storedAmount = payment_type === 'refund' ? -Math.abs(amount) : amount;
+
   // Record the payment transaction (status defaults to 'posted' -- only
   // posted payments ever count toward a balance, see functions/_ledger.js)
   await env.DB.prepare(`
     INSERT INTO payments (pg_id, rent_ledger_id, resident_id, amount, payment_mode, payment_type, collected_by, reference_note, payment_date)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
-    pgId, rent_ledger_id || null, resident_id, amount,
+    pgId, rent_ledger_id || null, resident_id, storedAmount,
     payment_mode || 'cash', payment_type || 'rent',
     session.name, reference_note || null, effectiveDate
   ).run();
@@ -58,7 +65,7 @@ export async function onRequestGet({ request, env }) {
   const limit = Math.min(parseInt(url.searchParams.get('limit') || (from && to ? '1000' : '50'), 10), 1000);
 
   let query = `
-    SELECT p.*, res.name as resident_name, r.floor, r.room_number
+    SELECT p.*, res.name as resident_name, res.phone, r.floor, r.room_number, b.bed_label
     FROM payments p
     JOIN residents res ON res.id = p.resident_id
     LEFT JOIN beds b ON b.id = res.bed_id

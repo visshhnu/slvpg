@@ -47,6 +47,76 @@ function fmtMoney(n) {
   return '₹' + n.toLocaleString('en-IN');
 }
 
+// Refund payments are stored as NEGATIVE amounts (see functions/api/
+// payments.js) so a plain SUM() nets them correctly everywhere else --
+// but every place that displays an individual payment row needs to show
+// it as a positive number with a sign/color that makes the direction of
+// money obvious, not a raw "-₹5,000" from fmtMoney. Shared here since
+// residents.js, rent.js and reports.js all render payment history lists.
+function paymentAmountLabel(p) {
+  const amt = fmtMoney(Math.abs(p.amount));
+  return p.payment_type === 'refund'
+    ? `<span style="color:var(--red,#B23B3B);">-${amt}</span>`
+    : `<span style="color:var(--green,#2E7D32);">+${amt}</span>`;
+}
+
+// ---- Payment receipt (shared by residents.js and reports.js) ----
+// Expects a single flattened payment object: the raw payment fields
+// (id, amount, payment_type, payment_date, payment_mode, collected_by,
+// reference_note) PLUS resident_name, phone, floor, room_number, bed_label
+// merged onto it -- residents.js builds this by spreading its resident
+// object's fields on; reports.js's /payments rows already come back this
+// shape directly from the backend.
+const PAYMENT_TYPE_LABELS = { rent: 'Rent Payment', advance: 'Advance Payment', refund: 'Refund' };
+
+function renderPaymentReceipt(p) {
+  const pg = state.pgList.find(x => x.id === state.currentPgId);
+  const pgName = pg ? pg.name : '';
+  const pgPrefix = pgName.split(' ').map(w => w[0]).filter(Boolean).join('').toUpperCase().slice(0, 6) || 'PG';
+  const receiptNo = `${pgPrefix}-PAY-${p.id}`;
+  const roomLabel = [p.floor, p.room_number ? `${p.room_number}${p.bed_label ? '-' + p.bed_label : ''}` : null].filter(Boolean).join(' ');
+  const isRefund = p.payment_type === 'refund';
+
+  openModal(`
+    <div class="modal-header">
+      <div class="modal-title">Payment Receipt</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div id="receipt-printable">
+      <div class="card" style="margin-bottom:12px;">
+        <div style="text-align:center;margin-bottom:10px;">
+          <div style="font-weight:800;font-size:16px;color:var(--navy);">${escapeHtml(pgName)}</div>
+          <div style="font-size:12px;color:var(--ink-soft);">Payment Receipt · ${receiptNo}</div>
+        </div>
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Resident</div></div><div>${escapeHtml(p.resident_name || '')}</div></div>
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Phone</div></div><div>${escapeHtml(p.phone || '—')}</div></div>
+        ${roomLabel ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Room</div></div><div>${escapeHtml(roomLabel)}</div></div>` : ''}
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Type</div></div><div>${PAYMENT_TYPE_LABELS[p.payment_type] || p.payment_type}</div></div>
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Amount</div></div><div style="font-weight:700;${isRefund ? 'color:#B23B3B;' : 'color:#2E7D32;'}">${isRefund ? '-' : '+'}${fmtMoney(Math.abs(p.amount))}</div></div>
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Date</div></div><div>${fmtDate(p.payment_date)}</div></div>
+        <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Mode</div></div><div>${escapeHtml(p.payment_mode || 'cash')}</div></div>
+        ${p.collected_by ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">${isRefund ? 'Issued by' : 'Collected by'}</div></div><div>${escapeHtml(p.collected_by)}</div></div>` : ''}
+        ${p.reference_note ? `<div class="list-row"><div class="list-row-main"><div class="list-row-sub">Note</div></div><div>${escapeHtml(p.reference_note)}</div></div>` : ''}
+      </div>
+      <p style="font-size:11px;color:var(--ink-soft);text-align:center;">Generated ${fmtDate(new Date().toISOString().slice(0,10))}</p>
+    </div>
+    <button class="btn btn-outline" style="margin-top:14px;width:100%;" onclick="printPaymentReceipt()">Print / Save as PDF</button>
+  `);
+}
+
+function printPaymentReceipt() {
+  const content = document.getElementById('receipt-printable').innerHTML;
+  const win = window.open('', '_blank');
+  win.document.write(`
+    <html><head><title>Payment Receipt</title>
+    <style>body{font-family:-apple-system,sans-serif;padding:24px;color:#262321;} .list-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #eee;} .card{margin-bottom:16px;}</style>
+    </head><body>${content}</body></html>
+  `);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 300);
+}
+
 function fmtDate(d) {
   if (!d) return '—';
   const date = new Date(d + (d.length === 7 ? '-01' : ''));

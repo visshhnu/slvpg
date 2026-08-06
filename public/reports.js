@@ -7,6 +7,13 @@
 // ─────────────────────────────────────────
 let activeReport = null; // null = show landing menu
 let reportPeriod = { key: 'this_month', from: null, to: null };
+let reportPayments = []; // last-loaded payments list, for openReportPaymentReceipt to look up by id
+
+function openReportPaymentReceipt(paymentId) {
+  const p = reportPayments.find(x => x.id === paymentId);
+  if (!p) { showToast('Could not find that payment.', 'error'); return; }
+  renderPaymentReceipt(p);
+}
 
 const REPORT_PERIODS = [
   { key: 'today',      label: 'Today' },
@@ -335,13 +342,16 @@ async function renderPaymentsReport(el, from, to) {
   // range never actually saw more than one month, and advance payments
   // (never tied to a rent_ledger row) were silently excluded entirely.
   const payments = await api(`/payments?from=${from}&to=${to}`);
+  reportPayments = payments; // so openReportPaymentReceipt can look one up by id
+  // Refunds are stored as negative amounts, so this sum is already NET --
+  // rent/advance collected minus refunds issued, not just money in.
   const total = payments.reduce((s, p) => s + p.amount, 0);
 
   el.innerHTML = `
     <div class="card" style="margin-bottom:8px;">
       <div class="card-title">Payments — ${periodLabel()}</div>
       <div class="stat-grid">
-        <div class="stat-box"><div class="stat-num green">${fmtMoney(total)}</div><div class="stat-label">Total received</div></div>
+        <div class="stat-box"><div class="stat-num green">${fmtMoney(total)}</div><div class="stat-label">Net received (after refunds)</div></div>
         <div class="stat-box"><div class="stat-num">${payments.length}</div><div class="stat-label">Transactions</div></div>
       </div>
     </div>
@@ -353,9 +363,12 @@ async function renderPaymentsReport(el, from, to) {
           <div class="list-row-main">
             <div class="list-row-title">${escapeHtml(p.resident_name)}</div>
             <div class="list-row-sub">${p.floor || ''} ${p.room_number || ''} · ${fmtDate(p.payment_date)} · ${p.payment_mode || 'cash'} · by ${escapeHtml(p.collected_by || '—')}</div>
-            <span class="badge ${p.payment_type === 'rent' ? 'badge-green' : p.payment_type === 'advance' ? 'badge-amber' : 'badge-gray'}">${p.payment_type}</span>
+            <span class="badge ${p.payment_type === 'rent' ? 'badge-green' : p.payment_type === 'advance' ? 'badge-amber' : 'badge-red'}">${p.payment_type}</span>
           </div>
-          <div style="font-weight:700;font-size:14px;color:var(--green);">+${fmtMoney(p.amount)}</div>
+          <div style="text-align:right;">
+            <div style="font-weight:700;font-size:14px;">${paymentAmountLabel(p)}</div>
+            <button class="btn btn-outline btn-sm" style="margin-top:4px;font-size:10.5px;" onclick="openReportPaymentReceipt(${p.id})">Receipt</button>
+          </div>
         </div>
       `).join('')
     }

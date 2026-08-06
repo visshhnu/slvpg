@@ -251,13 +251,14 @@ async function recomputeRentLedgerRow(env, rentLedgerId, amountDue, dueDate) {
   }
 }
 
-// Re-derives every rent_ledger row and residents.advance_paid for one
-// resident, from scratch, off the payments table -- the only source of
-// truth. Call this after a payment is created, edited, voided, refunded or
-// deleted. Nothing else may write to rent_ledger.amount_paid/status or
-// residents.advance_paid -- those columns are a cache of this computation,
-// never incremented/decremented in place (that drift is exactly what let a
-// deleted payment keep counting toward a resident's balance).
+// Re-derives every rent_ledger row and residents.advance_paid/refund_paid
+// for one resident, from scratch, off the payments table -- the only
+// source of truth. Call this after a payment is created, edited, voided,
+// refunded or deleted. Nothing else may write to rent_ledger.amount_paid/
+// status or residents.advance_paid/refund_paid -- those columns are a
+// cache of this computation, never incremented/decremented in place (that
+// drift is exactly what let a deleted payment keep counting toward a
+// resident's balance).
 export async function recomputeResidentLedger(env, residentId) {
   const { results: ledgerRows } = await env.DB.prepare(
     'SELECT id, amount_due FROM rent_ledger WHERE resident_id = ?'
@@ -275,6 +276,20 @@ export async function recomputeResidentLedger(env, residentId) {
   await env.DB.prepare(
     'UPDATE residents SET advance_paid = ? WHERE id = ?'
   ).bind(advanceSum.total, residentId).run();
+
+  // Refund payments are stored as NEGATIVE amounts (money leaving the PG,
+  // the opposite direction from rent/advance) precisely so a plain SUM()
+  // anywhere else in the app (Reports' payment totals, etc.) nets them out
+  // correctly without every caller needing to special-case payment_type.
+  // Negate back to a positive "amount refunded so far" for display here.
+  const refundSum = await env.DB.prepare(`
+    SELECT COALESCE(SUM(amount), 0) as total FROM payments
+    WHERE resident_id = ? AND payment_type = 'refund' AND status IN ${ACTIVE_STATUS_SQL}
+  `).bind(residentId).first();
+
+  await env.DB.prepare(
+    'UPDATE residents SET refund_paid = ? WHERE id = ?'
+  ).bind(-refundSum.total, residentId).run();
 }
 
 // "Overdue" is a function of today's date, not a stored fact -- deriving it
