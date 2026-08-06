@@ -35,6 +35,25 @@ async function api(path, options = {}) {
   return data;
 }
 
+// A hung /me or /setup check during boot means the user never sees anything
+// but the logo/splash, forever -- this is the recurring "stuck on logo"
+// symptom. fetch() has no built-in timeout, and unlike a normal in-app
+// action (where a spinner/toast can show something's happening), a boot-
+// time hang has nothing else on screen to fall back to. Bounds ONLY these
+// two boot-time checks to a few seconds so a dead/slow connection falls
+// through to the login screen instead of hanging indefinitely -- the
+// network is still bad either way, but the user lands somewhere they can
+// see and retry from, instead of a dead splash with no way forward.
+async function apiWithTimeout(path, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await api(path, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function showToast(message, type = '') {
   const el = document.getElementById('toast');
   el.textContent = message;
@@ -68,9 +87,11 @@ function paymentAmountLabel(p) {
 // object's fields on; reports.js's /payments rows already come back this
 // shape directly from the backend.
 const PAYMENT_TYPE_LABELS = { rent: 'Rent Payment', advance: 'Advance Payment', refund: 'Refund' };
+let currentPaymentReceiptData = null; // { p, pg } -- for sharePaymentReceiptPdf, same pattern as check-in receipts' currentReceiptData
 
 function renderPaymentReceipt(p) {
   const pg = state.pgList.find(x => x.id === state.currentPgId);
+  currentPaymentReceiptData = { p, pg };
   const pgName = pg ? pg.name : '';
   const pgPrefix = pgName.split(' ').map(w => w[0]).filter(Boolean).join('').toUpperCase().slice(0, 6) || 'PG';
   const receiptNo = `${pgPrefix}-PAY-${p.id}`;
@@ -86,7 +107,8 @@ function renderPaymentReceipt(p) {
       <div class="card" style="margin-bottom:12px;">
         <div style="text-align:center;margin-bottom:10px;">
           <div style="font-weight:800;font-size:16px;color:var(--navy);">${escapeHtml(pgName)}</div>
-          <div style="font-size:12px;color:var(--ink-soft);">Payment Receipt · ${receiptNo}</div>
+          ${pg && pg.address ? `<div style="font-size:11px;color:var(--ink-soft);margin-top:2px;">${escapeHtml(pg.address)}</div>` : ''}
+          <div style="font-size:12px;color:var(--ink-soft);margin-top:4px;">Payment Receipt · ${receiptNo}</div>
         </div>
         <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Resident</div></div><div>${escapeHtml(p.resident_name || '')}</div></div>
         <div class="list-row"><div class="list-row-main"><div class="list-row-sub">Phone</div></div><div>${escapeHtml(p.phone || '—')}</div></div>
@@ -100,8 +122,113 @@ function renderPaymentReceipt(p) {
       </div>
       <p style="font-size:11px;color:var(--ink-soft);text-align:center;">Generated ${fmtDate(new Date().toISOString().slice(0,10))}</p>
     </div>
-    <button class="btn btn-outline" style="margin-top:14px;width:100%;" onclick="printPaymentReceipt()">Print / Save as PDF</button>
+    <button class="btn btn-primary" style="margin-top:14px;width:100%;" id="share-payment-receipt-btn" onclick="sharePaymentReceiptPdf()">📤 Share Receipt (PDF)</button>
+    <button class="btn btn-outline" style="margin-top:8px;width:100%;" onclick="printPaymentReceipt()">Print / Save as PDF</button>
   `);
+}
+
+// Builds an actual PDF (not just a print dialog) so it can go straight to
+// WhatsApp/Email via the device's native share sheet -- same jsPDF pattern
+// as check-in receipts' buildReceiptPdf in residents.js.
+function buildPaymentReceiptPdf(p, pg) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 48;
+  let y = 56;
+  const pgName = pg ? pg.name : '';
+  const pgPrefix = pgName.split(' ').map(w => w[0]).filter(Boolean).join('').toUpperCase().slice(0, 6) || 'PG';
+  const receiptNo = `${pgPrefix}-PAY-${p.id}`;
+  const roomLabel = [p.floor, p.room_number ? `${p.room_number}${p.bed_label ? '-' + p.bed_label : ''}` : null].filter(Boolean).join(' ');
+  const isRefund = p.payment_type === 'refund';
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.setTextColor(15, 42, 74);
+  doc.text(pgName || 'Payment Receipt', pageWidth / 2, y, { align: 'center' });
+  y += 18;
+
+  if (pg && pg.address) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(120);
+    doc.text(pg.address, pageWidth / 2, y, { align: 'center', maxWidth: pageWidth - margin * 2 });
+    y += 16;
+  }
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  doc.setTextColor(100);
+  doc.text(`Payment Receipt · ${receiptNo}`, pageWidth / 2, y, { align: 'center' });
+  y += 26;
+
+  doc.setDrawColor(220);
+  doc.line(margin, y, pageWidth - margin, y);
+  y += 18;
+
+  const rows = [
+    ['Resident', p.resident_name || ''],
+    ['Phone', p.phone || '—'],
+    ...(roomLabel ? [['Room', roomLabel]] : []),
+    ['Type', PAYMENT_TYPE_LABELS[p.payment_type] || p.payment_type],
+    ['Amount', `${isRefund ? '-' : '+'}${fmtMoney(Math.abs(p.amount))}`],
+    ['Date', fmtDate(p.payment_date)],
+    ['Mode', p.payment_mode || 'cash'],
+    ...(p.collected_by ? [[isRefund ? 'Issued by' : 'Collected by', p.collected_by]] : []),
+    ...(p.reference_note ? [['Note', p.reference_note]] : []),
+  ];
+
+  doc.setFontSize(11);
+  rows.forEach(([label, val]) => {
+    doc.setTextColor(120);
+    doc.text(label, margin, y);
+    doc.setTextColor(30);
+    doc.text(String(val), pageWidth - margin, y, { align: 'right', maxWidth: pageWidth - margin * 2 - 100 });
+    y += 20;
+  });
+
+  y += 14;
+  doc.setFontSize(9);
+  doc.setTextColor(130);
+  doc.text(`Generated ${fmtDate(new Date().toISOString().slice(0,10))}`, pageWidth / 2, y, { align: 'center' });
+
+  return doc;
+}
+
+async function sharePaymentReceiptPdf() {
+  if (!currentPaymentReceiptData) { showToast('Receipt data not loaded.', 'error'); return; }
+  const { p, pg } = currentPaymentReceiptData;
+  const btn = document.getElementById('share-payment-receipt-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Preparing PDF…'; }
+
+  try {
+    const doc = buildPaymentReceiptPdf(p, pg);
+    const fileName = `payment-receipt-${p.id}.pdf`;
+    const pdfBlob = doc.output('blob');
+    const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: `Payment Receipt — ${p.resident_name || ''}`,
+        text: `Payment receipt for ${p.resident_name || ''}`,
+      });
+    } else {
+      const url = URL.createObjectURL(pdfBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showToast('Sharing isn\'t supported on this browser — PDF downloaded instead. Attach it from your downloads to WhatsApp/Email.', '');
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') showToast('Could not share receipt: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '📤 Share Receipt (PDF)'; }
+  }
 }
 
 function printPaymentReceipt() {
@@ -164,7 +291,7 @@ function escapeHtml(str) {
 // ---------- AUTH ----------
 async function checkSetup() {
   try {
-    const { setupComplete } = await api('/setup');
+    const { setupComplete } = await apiWithTimeout('/setup');
     document.getElementById('setup-form').classList.toggle('hidden', setupComplete);
     document.getElementById('login-form').classList.toggle('hidden', !setupComplete);
   } catch {
@@ -482,7 +609,7 @@ document.getElementById('modal-backdrop').addEventListener('click', (e) => {
 // ---------- INIT ----------
 (async function init() {
   try {
-    const me = await api('/me');
+    const me = await apiWithTimeout('/me');
     state.staff = me;
     state.currentPgId = me.pgId || null;
     await enterApp();
